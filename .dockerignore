@@ -1,0 +1,15 @@
+.git
+.github
+.idea
+.vscode
+*.md
+!README.md
+.env
+.env.*
+!.env.example
+bin/
+dist/
+coverage.*
+*.out
+Makefile
+docker-compose*.yml

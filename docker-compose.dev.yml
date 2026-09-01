@@ -1,0 +1,13 @@
+services:
+  remnawave-subpage-proxy:
+    image: hteppl/remnawave-subpage-proxy:dev
+    build:
+      context: .
+      args:
+        VERSION: dev
+    pull_policy: build
+    environment:
+      LOG_LEVEL: debug
+      LOG_FORMAT: text
+    ports:
+      - '127.0.0.1:3021:3021'

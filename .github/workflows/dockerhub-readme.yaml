@@ -1,0 +1,27 @@
+name: DockerHub README
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - README.md
+      - .github/workflows/dockerhub-readme.yaml
+
+jobs:
+  push-readme:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Push README to DockerHub
+        uses: christian-korneck/update-container-description-action@v1
+        env:
+          DOCKER_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKER_PASS: ${{ secrets.DOCKERHUB_TOKEN }}
+        with:
+          destination_container_repo: hteppl/remnawave-subpage-proxy
+          provider: dockerhub
+          short_description: "Automatically fill variables in Remnawave (https://docs.rw) subscription params."
+          readme_file: "README.md"

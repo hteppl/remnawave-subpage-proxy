@@ -1,0 +1,58 @@
+services:
+  remnawave-subpage-proxy:
+    image: hteppl/remnawave-subpage-proxy:latest
+    container_name: remnawave-subpage-proxy
+    hostname: remnawave-subpage-proxy
+    restart: always
+    env_file:
+      - .env
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    ports:
+      - '127.0.0.1:3020:3020'
+    depends_on:
+      - remnawave-subscription-page
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 20s
+    healthcheck:
+      test: ['CMD', '/usr/local/bin/subpage-proxy', '-healthcheck']
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+    networks:
+      - remnawave-network
+
+  remnawave-subscription-page:
+    image: remnawave/subscription-page:latest
+    container_name: remnawave-subscription-page
+    hostname: remnawave-subscription-page
+    restart: always
+    env_file:
+      - .env.subscription-page
+    expose:
+      - '3010'
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+    networks:
+      - remnawave-network
+
+networks:
+  remnawave-network:
+    driver: bridge
+    external: true

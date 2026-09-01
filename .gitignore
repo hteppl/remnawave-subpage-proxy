@@ -28,5 +28,11 @@ go.work.sum
 .env
 
 # Editor/IDE
-# .idea/
-# .vscode/
+.idea/
+.vscode/
+
+# Local runtime configuration
+config.yaml
+.env.subscription-page
+bin/
+tmp/
