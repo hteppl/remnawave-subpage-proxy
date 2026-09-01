@@ -50,7 +50,7 @@ datetime:
   timezone: "Europe/Moscow"
 
 vars:
-  BRAND: "MyVPN"
+  BRAND: "MyProject"
 
 headers:
   - name: announce

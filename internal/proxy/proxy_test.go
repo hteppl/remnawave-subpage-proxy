@@ -65,7 +65,7 @@ func TestProxyRewritesAnnounceEndToEnd(t *testing.T) {
 
 		w.Header().Set("subscription-userinfo", "upload=500000000; download=9500000000; total=100000000000; expire=0")
 		w.Header().Set("announce", "Used {TRAFFIC_USED} of {TRAFFIC_LIMIT}")
-		w.Header().Set("profile-title", "My VPN")
+		w.Header().Set("profile-title", "My Project")
 		w.Header().Set("Content-Type", "text/plain")
 		_, _ = w.Write([]byte("vless://..."))
 	}))
@@ -91,7 +91,7 @@ func TestProxyRewritesAnnounceEndToEnd(t *testing.T) {
 	if got, want := resp.Header.Get("announce"), "Used 10.00 GB of 100.00 GB"; got != want {
 		t.Errorf("announce = %q, want %q", got, want)
 	}
-	if got := resp.Header.Get("profile-title"); got != "My VPN" {
+	if got := resp.Header.Get("profile-title"); got != "My Project" {
 		t.Errorf("profile-title = %q, want it untouched", got)
 	}
 

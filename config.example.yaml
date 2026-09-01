@@ -2,7 +2,7 @@ traffic:
   decimals: 2
   binary_units: false
   unlimited: "∞"
-  # Report every plan as unlimited, whatever the panel says
+  # Report every plan as unlimited, regardless of the panel quota
   force_unlimited: false
   # units: ["Б", "КБ", "МБ", "ГБ", "ТБ", "ПБ", "ЭБ"]
 

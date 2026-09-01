@@ -165,7 +165,7 @@ func TestResolveFromPanel(t *testing.T) {
 
 func TestNeedsPanel(t *testing.T) {
 	file := testFile()
-	file.Vars = map[string]string{"BRAND": "MyVPN"}
+	file.Vars = map[string]string{"BRAND": "MyProject"}
 	r := NewResolver(file)
 
 	tests := []struct {

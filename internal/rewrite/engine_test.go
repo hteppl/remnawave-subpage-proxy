@@ -91,7 +91,7 @@ func TestScanBase64PrefixedAnnounce(t *testing.T) {
 func TestOpaqueBase64IsLeftAlone(t *testing.T) {
 	engine := New(Options{File: baseFile(), Fetcher: &stubFetcher{}, Logger: quietLogger()})
 
-	original := base64.StdEncoding.EncodeToString([]byte("My VPN Profile"))
+	original := base64.StdEncoding.EncodeToString([]byte("My Project Profile"))
 	h := http.Header{}
 	h.Set("subscription-userinfo", userInfo)
 	h.Set("profile-title", original)
@@ -105,7 +105,7 @@ func TestOpaqueBase64IsLeftAlone(t *testing.T) {
 
 func TestRuleTemplateCreatesHeader(t *testing.T) {
 	file := baseFile()
-	file.Vars = map[string]string{"BRAND": "MyVPN"}
+	file.Vars = map[string]string{"BRAND": "MyProject"}
 	file.Headers = []config.HeaderRule{{
 		Name:      "announce",
 		Template:  ptr("{BRAND}: {TRAFFIC_USED} / {TRAFFIC_LIMIT}"),
@@ -124,7 +124,7 @@ func TestRuleTemplateCreatesHeader(t *testing.T) {
 	if !ok || form != FormBase64Prefixed {
 		t.Fatalf("announce = %q, want base64: prefixed", h.Get("announce"))
 	}
-	if decoded != "MyVPN: 10.00 GB / 100.00 GB" {
+	if decoded != "MyProject: 10.00 GB / 100.00 GB" {
 		t.Errorf("announce = %q", decoded)
 	}
 }
