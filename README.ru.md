@@ -60,9 +60,9 @@ subpage-конфигурации продолжают работать, обно
 применимыми.
 
 ```
-клиент ──▶ caddy/nginx :443 ──▶ subpage-proxy :3020 ──▶ subscription-page :3010 ──▶ панель
-                                        │
-                                        └── GET /api/sub/{shortUuid}/info   (только если понадобится)
+клиент → caddy/nginx :443 → subpage-proxy :3020 → subscription-page :3010 → панель
+                                  │
+                                  └── GET /api/sub/{shortUuid}/info   (только если понадобится)
 ```
 
 Данные о трафике и сроке действия извлекаются из заголовка

@@ -57,9 +57,9 @@ detection, client-type templates, Marzban legacy links and subpage configuration
 continue to operate, and upstream updates remain applicable.
 
 ```
-client ──▶ caddy/nginx :443 ──▶ subpage-proxy :3020 ──▶ subscription-page :3010 ──▶ panel
-                                        │
-                                        └── GET /api/sub/{shortUuid}/info   (only when needed)
+client → caddy/nginx :443 → subpage-proxy :3020 → subscription-page :3010 → panel
+                                  │
+                                  └── GET /api/sub/{shortUuid}/info   (only when needed)
 ```
 
 Traffic and expiry placeholders are resolved from the `subscription-userinfo`
