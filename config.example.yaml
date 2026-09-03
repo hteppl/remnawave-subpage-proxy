@@ -1,6 +1,8 @@
 traffic:
   decimals: 2
-  binary_units: false
+  # Remnawave stores a "100 GB" plan as 100 GiB, so base 1024 reproduces the
+  # number shown in the panel. Set false for KB/MB/GB in powers of 1000.
+  binary_units: true
   unlimited: "∞"
   # Hide the quota from the client's own traffic display (sends total=0)
   force_unlimited: false

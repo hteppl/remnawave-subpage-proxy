@@ -160,7 +160,14 @@ func (p *Proxy) handleError(w http.ResponseWriter, r *http.Request, err error) {
 		return
 	}
 
-	p.log.Warn("upstream request failed",
+	// A bare EOF means the upstream closed without answering, which is how the
+	// subscription page refuses anything it will not serve: a scanner probing
+	// for /.env, an unknown path, a revoked link. Routine, not a fault.
+	level := slog.LevelWarn
+	if errors.Is(err, io.EOF) {
+		level = slog.LevelDebug
+	}
+	p.log.Log(r.Context(), level, "upstream request failed",
 		"path", r.URL.Path,
 		"error", err,
 	)

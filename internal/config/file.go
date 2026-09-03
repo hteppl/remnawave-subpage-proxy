@@ -151,8 +151,9 @@ type File struct {
 func defaultFile() File {
 	return File{
 		Traffic: TrafficFormat{
-			Decimals:  2,
-			Unlimited: "∞",
+			Decimals:    2,
+			BinaryUnits: true,
+			Unlimited:   "∞",
 		},
 		DateTime: DateTimeFormat{
 			Layout:     "02.01.2006",

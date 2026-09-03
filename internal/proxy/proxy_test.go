@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"io"
 	"log/slog"
@@ -502,4 +503,45 @@ func announceOf(h http.Header) string {
 		return values[0]
 	}
 	return h.Get("announce")
+}
+
+// The page drops connections on purpose for anything it will not serve, so a
+// scanner sweep must not fill the log with warnings.
+func TestUpstreamDropIsLoggedAtDebug(t *testing.T) {
+	// An upstream that accepts and closes without responding.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_ = conn.Close()
+		}
+	}()
+
+	var logged bytes.Buffer
+	target, _ := url.Parse("http://" + ln.Addr().String())
+	resolver, _ := realip.Parse("1")
+	handler := New(Options{
+		Upstream: target,
+		Timeout:  2 * time.Second,
+		Engine:   testEngine(t, nil),
+		RealIP:   resolver,
+		Logger:   slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelWarn})),
+	})
+
+	front := httptest.NewServer(handler)
+	defer front.Close()
+
+	if _, err := front.Client().Get(front.URL + "/.env"); err == nil {
+		t.Fatal("expected the connection to be dropped")
+	}
+	if strings.Contains(logged.String(), "upstream request failed") {
+		t.Errorf("a deliberate drop should not warn:\n%s", logged.String())
+	}
 }

@@ -24,7 +24,7 @@ func TestLoadFileDefaults(t *testing.T) {
 	if !cfg.Template.ScanAllHeaders {
 		t.Error("scan_all_headers should default to true")
 	}
-	if cfg.Traffic.Decimals != 2 || cfg.Traffic.Unlimited != "∞" {
+	if cfg.Traffic.Decimals != 2 || cfg.Traffic.Unlimited != "∞" || !cfg.Traffic.BinaryUnits {
 		t.Errorf("unexpected traffic defaults: %+v", cfg.Traffic)
 	}
 	if cfg.DateTime.Location().String() != "UTC" {
@@ -249,5 +249,17 @@ headers:
     template: "fallback"
 `), true); err != nil {
 		t.Fatalf("specific-to-general ordering must be accepted: %v", err)
+	}
+}
+
+// binary_units defaults to true, so an explicit false has to survive decoding
+// into an already-populated struct.
+func TestBinaryUnitsCanBeDisabled(t *testing.T) {
+	cfg, err := loadFile(writeConfig(t, "traffic:\n  binary_units: false\n"), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Traffic.BinaryUnits {
+		t.Error("binary_units: false was ignored")
 	}
 }
