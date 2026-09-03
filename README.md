@@ -189,31 +189,40 @@ through the proxy are therefore never interpreted as templates.
 
 ### Resolved without a panel request
 
-| Placeholder                 | Example                                 |
-|-----------------------------|-----------------------------------------|
-| `{TRAFFIC_USED}`            | `10.50 GB`                              |
-| `{TRAFFIC_LIMIT}`           | `100.00 GB`                             |
-| `{TRAFFIC_AVAILABLE}`       | `89.50 GB` (limit minus used)           |
-| `{TRAFFIC_USED_BYTES}`      | `10500000000`                           |
-| `{TRAFFIC_LIMIT_BYTES}`     | `100000000000`                          |
-| `{TRAFFIC_AVAILABLE_BYTES}` | `89500000000`                           |
-| `{TRAFFIC_UPLOAD}`          | `0.50 GB`                               |
-| `{TRAFFIC_DOWNLOAD}`        | `10.00 GB`                              |
-| `{TRAFFIC_USED_PERCENT}`    | `10`                                    |
-| `{TRAFFIC_LEFT_PERCENT}`    | `90`                                    |
-| `{PROGRESS_BAR}`            | `▰▱▱▱▱▱▱▱▱▱`                            |
-| `{DAYS_LEFT}`               | `12`                                    |
-| `{EXPIRES_AT}`              | `31.12.2026 23:59`                      |
-| `{EXPIRES_AT_DATE}`         | `31.12.2026`                            |
-| `{EXPIRES_AT_TIME}`         | `23:59`                                 |
-| `{EXPIRES_AT_UNIX}`         | `1798761599`                            |
-| `{SHORT_UUID}`              | `aBcDeF123`                             |
-| `{CLIENT_TYPE}`             | `clash`                                 |
-| `{USER_AGENT}`              | `Happ/1.0`                              |
-| `{CLIENT_IP}`               | `203.0.113.9`                           |
-| `{ORIGINAL_VALUE}`          | the header's own text, before rewriting |
-| `{NOW}` `{DATE}` `{TIME}`   | `01.09.2026 14:30`                      |
-| `{SUBSCRIPTION_URL}`        | `https://example.com/sub/aBcDeF123`     |
+| Placeholder                 | Example                                      |
+|-----------------------------|----------------------------------------------|
+| `{TRAFFIC_USED}`            | `10.50 GB`                                   |
+| `{TRAFFIC_LIMIT}`           | `100.00 GB`                                  |
+| `{TRAFFIC_AVAILABLE}`       | `89.50 GB` (limit minus used)                |
+| `{TRAFFIC_USED_BYTES}`      | `10500000000`                                |
+| `{TRAFFIC_LIMIT_BYTES}`     | `100000000000`                               |
+| `{TRAFFIC_USED_IN_LIMIT}`   | `3.0` (used, in the limit's unit, no suffix) |
+| `{TRAFFIC_LIMIT_VALUE}`     | `20.0` (limit, no suffix)                    |
+| `{TRAFFIC_UNIT}`            | `GB` (the unit both share)                   |
+| `{TRAFFIC_AVAILABLE_BYTES}` | `89500000000`                                |
+| `{TRAFFIC_UPLOAD}`          | `0.50 GB`                                    |
+| `{TRAFFIC_DOWNLOAD}`        | `10.00 GB`                                   |
+| `{TRAFFIC_USED_PERCENT}`    | `10`                                         |
+| `{TRAFFIC_LEFT_PERCENT}`    | `90`                                         |
+| `{PROGRESS_BAR}`            | `▰▱▱▱▱▱▱▱▱▱`                                 |
+| `{DAYS_LEFT}`               | `12`                                         |
+| `{EXPIRES_AT}`              | `31.12.2026 23:59`                           |
+| `{EXPIRES_AT_DATE}`         | `31.12.2026`                                 |
+| `{EXPIRES_AT_TIME}`         | `23:59`                                      |
+| `{EXPIRES_AT_UNIX}`         | `1798761599`                                 |
+| `{SHORT_UUID}`              | `aBcDeF123`                                  |
+| `{CLIENT_TYPE}`             | `clash`                                      |
+| `{USER_AGENT}`              | `Happ/1.0`                                   |
+| `{CLIENT_IP}`               | `203.0.113.9`                                |
+| `{ORIGINAL_VALUE}`          | the header's own text, before rewriting      |
+| `{NOW}` `{DATE}` `{TIME}`   | `01.09.2026 14:30`                           |
+| `{SUBSCRIPTION_URL}`        | `https://example.com/sub/aBcDeF123`          |
+
+`{TRAFFIC_USED_IN_LIMIT}`, `{TRAFFIC_LIMIT_VALUE}` and `{TRAFFIC_UNIT}` render
+both sides of a quota in one shared unit, so `Used {TRAFFIC_USED} of
+{TRAFFIC_LIMIT}` — which gives `0 B of 20.0 GB` at zero usage — can be written as
+`Used {TRAFFIC_USED_IN_LIMIT} of {TRAFFIC_LIMIT}` for `0.0 of 20.0 GB`. The unit
+follows the limit, falling back to the used value on an unlimited plan.
 
 `{ORIGINAL_VALUE}` holds the text the panel sent for the header the rule targets,
 decoded if it was base64. It lets a `template` wrap the panel's announce instead

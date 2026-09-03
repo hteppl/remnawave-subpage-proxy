@@ -28,6 +28,9 @@ var Catalog = map[string]Origin{
 	"TRAFFIC_USED_BYTES":      OriginTraffic,
 	"TRAFFIC_LIMIT":           OriginTraffic,
 	"TRAFFIC_LIMIT_BYTES":     OriginTraffic,
+	"TRAFFIC_USED_IN_LIMIT":   OriginTraffic,
+	"TRAFFIC_LIMIT_VALUE":     OriginTraffic,
+	"TRAFFIC_UNIT":            OriginTraffic,
 	"TRAFFIC_AVAILABLE":       OriginTraffic,
 	"TRAFFIC_AVAILABLE_BYTES": OriginTraffic,
 	"TRAFFIC_USED_PERCENT":    OriginTraffic,
@@ -48,7 +51,7 @@ var Catalog = map[string]Origin{
 	"TRAFFIC_LIMIT_STRATEGY": OriginPanel,
 	"LIFETIME_TRAFFIC_USED":  OriginPanel,
 
-    "ORIGINAL_VALUE":   OriginLocal,
+	"ORIGINAL_VALUE":   OriginLocal,
 	"SHORT_UUID":       OriginLocal,
 	"SUBSCRIPTION_URL": OriginLocal,
 	"CLIENT_TYPE":      OriginLocal,
@@ -196,6 +199,27 @@ func (r *Resolver) resolve(name string, src Source) (string, bool) {
 		return r.bytes(limit)
 	case "TRAFFIC_LIMIT_BYTES":
 		return r.rawBytes(limit)
+	case "TRAFFIC_USED_IN_LIMIT":
+		if used < 0 {
+			return "", false
+		}
+		_, base := unitsOf(r.traffic)
+		return formatScaled(used, r.limitScale(used, limit), base, r.traffic.Decimals), true
+	case "TRAFFIC_LIMIT_VALUE":
+		if limit < 0 {
+			return "", false
+		}
+		if limit == 0 {
+			return r.traffic.Unlimited, true
+		}
+		_, base := unitsOf(r.traffic)
+		return formatScaled(limit, r.limitScale(used, limit), base, r.traffic.Decimals), true
+	case "TRAFFIC_UNIT":
+		if limit < 0 && used < 0 {
+			return "", false
+		}
+		units, _ := unitsOf(r.traffic)
+		return units[r.limitScale(used, limit)], true
 	case "TRAFFIC_AVAILABLE":
 		if limit == 0 {
 			return r.traffic.Unlimited, true
@@ -378,24 +402,50 @@ var (
 
 // FormatBytes gives whole bytes no decimals: "512.00 B" reads as a bug.
 func FormatBytes(n int64, f config.TrafficFormat) string {
-	units := decimalUnits
-	base := int64(1000)
+	units, base := unitsOf(f)
+	idx := unitIndex(n, base, len(units)-1)
+	return formatScaled(n, idx, base, f.Decimals) + " " + units[idx]
+}
+
+func unitsOf(f config.TrafficFormat) ([]string, int64) {
+	units, base := decimalUnits, int64(1000)
 	if f.BinaryUnits {
 		units, base = binaryUnits, 1024
 	}
 	if len(f.Units) > 0 {
 		units = f.Units
 	}
+	return units, base
+}
 
-	if n < base {
-		return strconv.FormatInt(n, 10) + " " + units[0]
-	}
-
-	value := float64(n)
-	idx := 0
-	for value >= float64(base) && idx < len(units)-1 {
+// unitIndex picks the largest unit n still fits into.
+func unitIndex(n, base int64, maxIdx int) int {
+	value, idx := float64(n), 0
+	for value >= float64(base) && idx < maxIdx {
 		value /= float64(base)
 		idx++
 	}
-	return strconv.FormatFloat(value, 'f', f.Decimals, 64) + " " + units[idx]
+	return idx
+}
+
+// formatScaled renders n in the unit at idx, without the unit itself.
+func formatScaled(n int64, idx int, base int64, decimals int) string {
+	if idx == 0 {
+		return strconv.FormatInt(n, 10)
+	}
+	return strconv.FormatFloat(float64(n)/math.Pow(float64(base), float64(idx)), 'f', decimals, 64)
+}
+
+// limitScale is the unit both sides of "X of Y" should share. It follows the
+// limit, falling back to the used value when there is no limit to follow.
+func (r *Resolver) limitScale(used, limit int64) int {
+	units, base := unitsOf(r.traffic)
+	n := limit
+	if n <= 0 {
+		n = used
+	}
+	if n < 0 {
+		n = 0
+	}
+	return unitIndex(n, base, len(units)-1)
 }

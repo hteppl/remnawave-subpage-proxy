@@ -74,12 +74,12 @@ func (e *Engine) Enabled() bool {
 }
 
 type candidate struct {
-	name    string
-	source  string
-	form    Form
-	remove  bool
-	rule    *config.HeaderRule
-	present bool
+	name        string
+	source      string
+	form        Form
+	remove      bool
+	rule        *config.HeaderRule
+	present     bool
 	original    string
 	hasOriginal bool
 }

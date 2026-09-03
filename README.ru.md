@@ -191,31 +191,40 @@ headers:
 
 ### Разрешаются без запроса к панели
 
-| Плейсхолдер                 | Пример                                   |
-|-----------------------------|------------------------------------------|
-| `{TRAFFIC_USED}`            | `10.50 GB`                               |
-| `{TRAFFIC_LIMIT}`           | `100.00 GB`                              |
-| `{TRAFFIC_AVAILABLE}`       | `89.50 GB` (лимит минус израсходованное) |
-| `{TRAFFIC_USED_BYTES}`      | `10500000000`                            |
-| `{TRAFFIC_LIMIT_BYTES}`     | `100000000000`                           |
-| `{TRAFFIC_AVAILABLE_BYTES}` | `89500000000`                            |
-| `{TRAFFIC_UPLOAD}`          | `0.50 GB`                                |
-| `{TRAFFIC_DOWNLOAD}`        | `10.00 GB`                               |
-| `{TRAFFIC_USED_PERCENT}`    | `10`                                     |
-| `{TRAFFIC_LEFT_PERCENT}`    | `90`                                     |
-| `{PROGRESS_BAR}`            | `▰▱▱▱▱▱▱▱▱▱`                             |
-| `{DAYS_LEFT}`               | `12`                                     |
-| `{EXPIRES_AT}`              | `31.12.2026 23:59`                       |
-| `{EXPIRES_AT_DATE}`         | `31.12.2026`                             |
-| `{EXPIRES_AT_TIME}`         | `23:59`                                  |
-| `{EXPIRES_AT_UNIX}`         | `1798761599`                             |
-| `{SHORT_UUID}`              | `aBcDeF123`                              |
-| `{CLIENT_TYPE}`             | `clash`                                  |
-| `{USER_AGENT}`              | `Happ/1.0`                               |
-| `{CLIENT_IP}`               | `203.0.113.9`                            |
-| `{ORIGINAL_VALUE}`          | текст самого заголовка до перезаписи     |
-| `{NOW}` `{DATE}` `{TIME}`   | `01.09.2026 14:30`                       |
-| `{SUBSCRIPTION_URL}`        | `https://example.com/sub/aBcDeF123`      |
+| Плейсхолдер                 | Пример                                        |
+|-----------------------------|-----------------------------------------------|
+| `{TRAFFIC_USED}`            | `10.50 GB`                                    |
+| `{TRAFFIC_LIMIT}`           | `100.00 GB`                                   |
+| `{TRAFFIC_AVAILABLE}`       | `89.50 GB` (лимит минус израсходованное)      |
+| `{TRAFFIC_USED_BYTES}`      | `10500000000`                                 |
+| `{TRAFFIC_LIMIT_BYTES}`     | `100000000000`                                |
+| `{TRAFFIC_USED_IN_LIMIT}`   | `3.0` (расход в единице лимита, без суффикса) |
+| `{TRAFFIC_LIMIT_VALUE}`     | `20.0` (лимит без суффикса)                   |
+| `{TRAFFIC_UNIT}`            | `GB` (общая единица)                          |
+| `{TRAFFIC_AVAILABLE_BYTES}` | `89500000000`                                 |
+| `{TRAFFIC_UPLOAD}`          | `0.50 GB`                                     |
+| `{TRAFFIC_DOWNLOAD}`        | `10.00 GB`                                    |
+| `{TRAFFIC_USED_PERCENT}`    | `10`                                          |
+| `{TRAFFIC_LEFT_PERCENT}`    | `90`                                          |
+| `{PROGRESS_BAR}`            | `▰▱▱▱▱▱▱▱▱▱`                                  |
+| `{DAYS_LEFT}`               | `12`                                          |
+| `{EXPIRES_AT}`              | `31.12.2026 23:59`                            |
+| `{EXPIRES_AT_DATE}`         | `31.12.2026`                                  |
+| `{EXPIRES_AT_TIME}`         | `23:59`                                       |
+| `{EXPIRES_AT_UNIX}`         | `1798761599`                                  |
+| `{SHORT_UUID}`              | `aBcDeF123`                                   |
+| `{CLIENT_TYPE}`             | `clash`                                       |
+| `{USER_AGENT}`              | `Happ/1.0`                                    |
+| `{CLIENT_IP}`               | `203.0.113.9`                                 |
+| `{ORIGINAL_VALUE}`          | текст самого заголовка до перезаписи          |
+| `{NOW}` `{DATE}` `{TIME}`   | `01.09.2026 14:30`                            |
+| `{SUBSCRIPTION_URL}`        | `https://example.com/sub/aBcDeF123`           |
+
+`{TRAFFIC_USED_IN_LIMIT}`, `{TRAFFIC_LIMIT_VALUE}` и `{TRAFFIC_UNIT}` выводят обе
+части квоты в одной единице. Запись `Лимит: {TRAFFIC_USED} из {TRAFFIC_LIMIT}`
+при нулевом расходе даёт `0 B из 20.0 GB`; вариант
+`Лимит: {TRAFFIC_USED_IN_LIMIT} из {TRAFFIC_LIMIT}` даёт `0.0 из 20.0 GB`.
+Единица берётся от лимита, а при безлимитном тарифе — от израсходованного.
 
 `{ORIGINAL_VALUE}` содержит текст, который панель прислала для того заголовка,
 на который стоит правило, — декодированный, если он был в base64. Это позволяет

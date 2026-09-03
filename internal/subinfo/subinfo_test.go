@@ -264,3 +264,107 @@ func TestForceUnlimitedWithoutCounters(t *testing.T) {
 		t.Error("TRAFFIC_USED must stay unresolved with no counters")
 	}
 }
+
+// Used and limit share the limit's unit, so "X of Y UNIT" reads naturally.
+func TestSharedUnitPlaceholders(t *testing.T) {
+	file := testFile()
+	file.Traffic.Decimals = 1
+	r := NewResolver(file)
+
+	tests := []struct {
+		name                          string
+		header                        string
+		usedInLimit, limitValue, unit string
+	}{
+		{
+			name:        "nothing used yet",
+			header:      "upload=0; download=0; total=20000000000; expire=0",
+			usedInLimit: "0.0", limitValue: "20.0", unit: "GB",
+		},
+		{
+			name:        "part of the quota",
+			header:      "upload=1000000000; download=2000000000; total=20000000000; expire=0",
+			usedInLimit: "3.0", limitValue: "20.0", unit: "GB",
+		},
+		{
+			// Without the shared scale this would read "500.0 MB of 20.0 GB".
+			name:        "used is far smaller than the limit",
+			header:      "upload=0; download=500000000; total=20000000000; expire=0",
+			usedInLimit: "0.5", limitValue: "20.0", unit: "GB",
+		},
+		{
+			name:        "terabyte quota",
+			header:      "upload=0; download=300000000000; total=2000000000000; expire=0",
+			usedInLimit: "0.3", limitValue: "2.0", unit: "TB",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ui, _ := ParseUserInfo(tc.header)
+			lookup := r.Lookup(Source{ShortUUID: "abc", UserInfo: &ui})
+
+			for name, want := range map[string]string{
+				"TRAFFIC_USED_IN_LIMIT": tc.usedInLimit,
+				"TRAFFIC_LIMIT_VALUE":   tc.limitValue,
+				"TRAFFIC_UNIT":          tc.unit,
+			} {
+				got, ok := lookup(name)
+				if !ok || got != want {
+					t.Errorf("%s = %q (ok=%v), want %q", name, got, ok, want)
+				}
+			}
+		})
+	}
+}
+
+func TestSharedUnitOnUnlimitedPlan(t *testing.T) {
+	file := testFile()
+	file.Traffic.Decimals = 1
+	r := NewResolver(file)
+
+	ui, _ := ParseUserInfo("upload=0; download=3000000000; total=0; expire=0")
+	lookup := r.Lookup(Source{ShortUUID: "abc", UserInfo: &ui})
+
+	// With no limit to follow, the scale comes from the used value itself.
+	for name, want := range map[string]string{
+		"TRAFFIC_USED_IN_LIMIT": "3.0",
+		"TRAFFIC_LIMIT_VALUE":   "∞",
+		"TRAFFIC_UNIT":          "GB",
+	} {
+		if got, ok := lookup(name); !ok || got != want {
+			t.Errorf("%s = %q (ok=%v), want %q", name, got, ok, want)
+		}
+	}
+}
+
+func TestSharedUnitWithoutCounters(t *testing.T) {
+	r := NewResolver(testFile())
+	lookup := r.Lookup(Source{ShortUUID: "abc"})
+
+	for _, name := range []string{"TRAFFIC_USED_IN_LIMIT", "TRAFFIC_LIMIT_VALUE", "TRAFFIC_UNIT"} {
+		if _, ok := lookup(name); ok {
+			t.Errorf("%s should stay unresolved with no counters", name)
+		}
+	}
+}
+
+func TestSharedUnitBinaryUnits(t *testing.T) {
+	file := testFile()
+	file.Traffic.Decimals = 1
+	file.Traffic.BinaryUnits = true
+	r := NewResolver(file)
+
+	ui, _ := ParseUserInfo("upload=0; download=1073741824; total=21474836480; expire=0")
+	lookup := r.Lookup(Source{ShortUUID: "abc", UserInfo: &ui})
+
+	for name, want := range map[string]string{
+		"TRAFFIC_USED_IN_LIMIT": "1.0",
+		"TRAFFIC_LIMIT_VALUE":   "20.0",
+		"TRAFFIC_UNIT":          "GiB",
+	} {
+		if got, ok := lookup(name); !ok || got != want {
+			t.Errorf("%s = %q, want %q", name, got, want)
+		}
+	}
+}
