@@ -1,0 +1,25 @@
+# Build the announce in the proxy instead of the panel.
+#
+# `template` replaces the header outright. Drop it to keep the panel's text and
+# only fill in the placeholders.
+
+vars:
+  BRAND: "MyProject"
+  SUPPORT: "@my_support_bot"
+
+headers:
+  - name: announce
+    template: "{BRAND} · {TRAFFIC_USED} of {TRAFFIC_LIMIT} · {DAYS_LEFT} days left · {SUPPORT}"
+    encode: base64-prefixed
+    max_length: 200
+
+  - name: profile-title
+    template: "{BRAND}"
+    encode: base64
+    max_length: 25
+
+  # Applied only if the panel did not send the header itself.
+  - name: support-url
+    template: "https://t.me/my_support_bot"
+    when:
+      exists: false

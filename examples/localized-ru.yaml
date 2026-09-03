@@ -1,0 +1,40 @@
+# Russian text, local units, local timezone.
+
+traffic:
+  decimals: 1
+  unlimited: "безлимит"
+  units: ["Б", "КБ", "МБ", "ГБ", "ТБ", "ПБ", "ЭБ"]
+
+datetime:
+  layout: "02.01.2006"
+  time_layout: "15:04"
+  timezone: "Europe/Moscow"
+  never: "бессрочно"
+
+progress_bar:
+  width: 8
+
+vars:
+  BRAND: "MyProject"
+  SUPPORT: "@my_support_bot"
+
+# Rules are matched top to bottom, so the most specific ones come first: an
+# unconditional rule makes everything after it for the same header unreachable.
+headers:
+  - name: announce
+    template: "Лимит трафика исчерпан — продлите на {SUPPORT}"
+    encode: base64-prefixed
+    when:
+      user_statuses: [LIMITED, EXPIRED]
+
+  - name: announce
+    template: "{BRAND} · израсходовано {TRAFFIC_USED} из {TRAFFIC_LIMIT} · осталось {DAYS_LEFT} дн."
+    encode: base64-prefixed
+    max_length: 200
+    when:
+      has_traffic_limit: true
+
+  - name: announce
+    template: "{BRAND} · безлимитный трафик · до {EXPIRES_AT_DATE}"
+    encode: base64-prefixed
+    max_length: 200

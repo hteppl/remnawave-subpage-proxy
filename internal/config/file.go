@@ -120,6 +120,13 @@ type Condition struct {
 
 func (c Condition) UserAgentRegexp() *regexp.Regexp { return c.userAgentRe }
 
+// isEmpty reports a rule that matches every request, and therefore shadows any
+// later rule for the same header.
+func (c Condition) isEmpty() bool {
+	return len(c.ClientTypes) == 0 && len(c.UserStatuses) == 0 &&
+		strings.TrimSpace(c.UserAgent) == "" && c.Exists == nil && c.HasTrafficLimit == nil
+}
+
 type HeaderRule struct {
 	Name string `yaml:"name"`
 	// Template replaces the value outright; omit it to only substitute.
@@ -241,12 +248,24 @@ func (f *File) validate() error {
 		}
 	}
 
+	// Rules are matched top to bottom, so an unconditional rule makes every
+	// later rule for the same header dead code.
+	shadowed := make(map[string]int, len(f.Headers))
+
 	for i := range f.Headers {
 		rule := &f.Headers[i]
 		rule.Name = strings.TrimSpace(rule.Name)
 		if rule.Name == "" {
 			problems = append(problems, fmt.Sprintf("headers[%d].name is required", i))
 			continue
+		}
+		key := strings.ToLower(rule.Name)
+		if prev, dead := shadowed[key]; dead {
+			problems = append(problems, fmt.Sprintf(
+				"headers[%d] (%s) is unreachable: headers[%d] targets the same header with no conditions",
+				i, rule.Name, prev))
+		} else if rule.When.isEmpty() {
+			shadowed[key] = i
 		}
 		if rule.Encode == "" {
 			rule.Encode = EncodeAuto

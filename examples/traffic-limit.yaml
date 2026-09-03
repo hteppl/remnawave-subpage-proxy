@@ -1,0 +1,27 @@
+# Different text for metered and unlimited plans.
+#
+# The first rule whose conditions hold wins, so the unconditional fallback goes
+# last. It covers the case where the quota cannot be determined at all.
+
+vars:
+  BRAND: "MyProject"
+
+headers:
+  - name: announce
+    template: "{BRAND} · {TRAFFIC_USED} of {TRAFFIC_LIMIT} · {PROGRESS_BAR} {TRAFFIC_USED_PERCENT}%"
+    encode: base64-prefixed
+    max_length: 200
+    when:
+      has_traffic_limit: true
+
+  - name: announce
+    template: "{BRAND} · unlimited traffic · {DAYS_LEFT} days left"
+    encode: base64-prefixed
+    max_length: 200
+    when:
+      has_traffic_limit: false
+
+  - name: announce
+    template: "{BRAND} · {DAYS_LEFT} days left"
+    encode: base64-prefixed
+    max_length: 200

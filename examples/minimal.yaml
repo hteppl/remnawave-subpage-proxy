@@ -1,0 +1,17 @@
+# Substitute placeholders in whatever the panel already sends, without
+# replacing the header text.
+#
+# Write the announce in Remnawave Settings → Subscription Settings →
+# Custom Response Headers, for example:
+#
+#   announce: Used {TRAFFIC_USED} of {TRAFFIC_LIMIT}
+#
+# No `headers` rules are needed: scan_all_headers is on by default. This file
+# only changes formatting.
+
+traffic:
+  decimals: 1
+
+datetime:
+  layout: "02.01.2006"
+  timezone: "Europe/Moscow"

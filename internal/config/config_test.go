@@ -193,3 +193,61 @@ headers:
 		t.Error("has_traffic_limit: false was not parsed")
 	}
 }
+
+// The shipped examples must always load; they are documentation users copy.
+func TestShippedConfigsAreValid(t *testing.T) {
+	paths, err := filepath.Glob(filepath.Join("..", "..", "examples", "*.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths = append(paths, filepath.Join("..", "..", "config.example.yaml"))
+	if len(paths) < 2 {
+		t.Fatal("no example configs found")
+	}
+
+	for _, path := range paths {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			if _, err := loadFile(path, true); err != nil {
+				t.Errorf("%s does not load: %v", path, err)
+			}
+		})
+	}
+}
+
+// An unconditional rule shadows every later rule for the same header, which is
+// silent dead config without this check.
+func TestLoadFileRejectsUnreachableRules(t *testing.T) {
+	_, err := loadFile(writeConfig(t, `
+headers:
+  - name: announce
+    template: "always"
+  - name: announce
+    template: "never reached"
+    when:
+      has_traffic_limit: true
+`), true)
+	if err == nil {
+		t.Fatal("an unreachable rule should be rejected")
+	}
+	if !strings.Contains(err.Error(), "unreachable") {
+		t.Errorf("error should explain the problem: %v", err)
+	}
+}
+
+func TestLoadFileAllowsConditionalRulesThenFallback(t *testing.T) {
+	if _, err := loadFile(writeConfig(t, `
+headers:
+  - name: announce
+    template: "limited"
+    when:
+      has_traffic_limit: true
+  - name: announce
+    template: "unlimited"
+    when:
+      has_traffic_limit: false
+  - name: announce
+    template: "fallback"
+`), true); err != nil {
+		t.Fatalf("specific-to-general ordering must be accepted: %v", err)
+	}
+}

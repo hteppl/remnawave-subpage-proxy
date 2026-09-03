@@ -8,6 +8,7 @@
 .env.*
 !.env.example
 bin/
+examples/
 dist/
 coverage.*
 *.out

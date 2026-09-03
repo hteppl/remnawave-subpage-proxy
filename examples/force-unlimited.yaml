@@ -1,0 +1,26 @@
+# Present every plan as unlimited while keeping the real quota internally.
+#
+# subscription-userinfo goes out with total=0, so clients display no quota, and
+# {TRAFFIC_LIMIT} renders as the `unlimited` text below. Consumed traffic and
+# expiry are untouched.
+#
+# has_traffic_limit still tests the real panel quota, so both can be combined.
+
+traffic:
+  force_unlimited: true
+  unlimited: "unlimited"
+
+vars:
+  BRAND: "MyProject"
+
+headers:
+  - name: announce
+    template: "{BRAND} · unlimited traffic · {DAYS_LEFT} days left"
+    encode: base64-prefixed
+    max_length: 200
+
+  # Internal marker, not shown by clients: the plan is metered under the hood.
+  - name: X-Metered
+    template: "yes"
+    when:
+      has_traffic_limit: true

@@ -177,7 +177,8 @@ headers:
     max_length: 25
 ```
 
-Все доступные параметры описаны в [`config.example.yaml`](config.example.yaml).
+Все доступные параметры описаны в [`config.example.yaml`](config.example.yaml),
+а в [`examples/`](examples/) лежат готовые конфигурации под типовые сценарии.
 
 ## Плейсхолдеры
 

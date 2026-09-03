@@ -1,0 +1,27 @@
+# Target specific clients.
+#
+# user_agent is a Go regular expression matched against the client's
+# User-Agent. client_types matches the path segment: /{shortUuid}/clash.
+
+headers:
+  # Happ renders a progress bar well, so give it one.
+  - name: announce
+    template: "{PROGRESS_BAR} {TRAFFIC_USED_PERCENT}% · {TRAFFIC_AVAILABLE} left"
+    encode: base64-prefixed
+    max_length: 200
+    when:
+      user_agent: "(?i)happ"
+
+  # Everything else gets plain text.
+  - name: announce
+    template: "{TRAFFIC_USED} of {TRAFFIC_LIMIT}"
+    encode: base64-prefixed
+    max_length: 200
+
+  - name: X-Plan-Summary
+    template: "{TRAFFIC_USED} / {TRAFFIC_LIMIT}"
+    when:
+      client_types: [clash, json, singbox]
+
+  - name: profile-web-page-url
+    remove: true

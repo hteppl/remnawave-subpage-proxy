@@ -1,0 +1,26 @@
+# Warn users whose subscription is no longer usable.
+#
+# user_statuses always costs one panel request, because the status is not part
+# of the subscription response headers. The result is cached (CACHE_TTL).
+
+vars:
+  SUPPORT: "@my_support_bot"
+
+headers:
+  - name: announce
+    template: "Traffic limit reached — renew at {SUPPORT}"
+    encode: base64-prefixed
+    when:
+      user_statuses: [LIMITED]
+
+  - name: announce
+    template: "Subscription expired — renew at {SUPPORT}"
+    encode: base64-prefixed
+    when:
+      user_statuses: [EXPIRED, DISABLED]
+
+  - name: announce
+    template: "Hello {USERNAME} · {TRAFFIC_AVAILABLE} left"
+    encode: base64-prefixed
+    when:
+      user_statuses: [ACTIVE]

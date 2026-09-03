@@ -33,6 +33,7 @@ go.work.sum
 
 # Local runtime configuration
 config.yaml
+examples/*.local.yaml
 .env.subscription-page
 bin/
 dist/

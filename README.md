@@ -176,7 +176,8 @@ headers:
 ```
 
 All available options are documented in
-[`config.example.yaml`](config.example.yaml).
+[`config.example.yaml`](config.example.yaml), and [`examples/`](examples/) holds
+ready-made configurations for common setups.
 
 ## Placeholders
 
