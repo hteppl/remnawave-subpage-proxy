@@ -75,11 +75,10 @@ type Source struct {
 }
 
 type Resolver struct {
-	traffic        config.TrafficFormat
-	forceUnlimited bool
-	datetime       config.DateTimeFormat
-	bar            config.ProgressBar
-	custom         map[string]string
+	traffic  config.TrafficFormat
+	datetime config.DateTimeFormat
+	bar      config.ProgressBar
+	custom   map[string]string
 
 	now func() time.Time
 }
@@ -90,20 +89,18 @@ func NewResolver(f config.File) *Resolver {
 		custom[k] = v
 	}
 	return &Resolver{
-		traffic:        f.Traffic,
-		forceUnlimited: f.Traffic.ForceUnlimited,
-		datetime:       f.DateTime,
-		bar:            f.ProgressBar,
-		custom:         custom,
-		now:            time.Now,
+		traffic:  f.Traffic,
+		datetime: f.DateTime,
+		bar:      f.ProgressBar,
+		custom:   custom,
+		now:      time.Now,
 	}
 }
 
-// RawLimit reports the traffic allowance in bytes as configured in the panel,
-// ignoring force_unlimited, and whether it could be determined at all. Zero
-// means unlimited.
-func (r *Resolver) RawLimit(src Source) (int64, bool) {
-	_, limit, ok := r.rawCounters(src)
+// Limit reports the traffic allowance in bytes and whether it could be
+// determined at all. Zero means unlimited.
+func (r *Resolver) Limit(src Source) (int64, bool) {
+	_, limit, ok := r.trafficCounters(src)
 	return limit, ok && limit >= 0
 }
 
@@ -298,19 +295,6 @@ func (r *Resolver) resolve(name string, src Source) (string, bool) {
 // trafficCounters prefers the response header: consistent with the payload the
 // client just received, and free.
 func (r *Resolver) trafficCounters(src Source) (used, limit int64, ok bool) {
-	used, limit, ok = r.rawCounters(src)
-
-	// A zero limit already means unlimited everywhere below, and the answer does
-	// not depend on having any counters.
-	if r.forceUnlimited {
-		limit, ok = 0, true
-	}
-	return used, limit, ok
-}
-
-// rawCounters reports the quota as the panel and headers actually hold it,
-// without the force_unlimited presentation applied on top.
-func (r *Resolver) rawCounters(src Source) (used, limit int64, ok bool) {
 	used, limit = -1, -1
 
 	if src.UserInfo != nil {

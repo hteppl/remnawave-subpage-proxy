@@ -358,8 +358,8 @@ number.
 
 ### Forcing an unlimited plan
 
-`traffic.force_unlimited` reports every subscription as unlimited to the client,
-regardless of the quota configured in the panel:
+`traffic.force_unlimited` hides the quota from the client's built-in traffic
+display, regardless of what the panel has configured:
 
 ```yaml
 traffic:
@@ -368,12 +368,12 @@ traffic:
 
 The `subscription-userinfo` header is sent with `total=0`, the standard encoding
 for an unlimited plan and the value that determines the quota display in client
-applications. `{TRAFFIC_LIMIT}` and `{TRAFFIC_AVAILABLE}` then render as `∞`,
-`{TRAFFIC_USED_PERCENT}` as `0`, and `{PROGRESS_BAR}` remains empty.
+applications.
 
-Consumed traffic and expiry are unaffected: `{TRAFFIC_USED}` continues to report
-actual consumption, and the subscription still expires on schedule. Only the
-limit is concealed.
+Only that header is rewritten. Placeholders and conditions keep reporting the
+real quota, so `{TRAFFIC_LIMIT}` still yields `100.00 GB` and
+`has_traffic_limit: true` still matches. The option controls the one thing a
+template cannot: the app's own traffic readout.
 
 ### Subscription fallback cache
 

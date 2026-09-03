@@ -101,7 +101,8 @@ func (e *Engine) Apply(ctx context.Context, h http.Header, rq Request) {
 		return
 	}
 
-	// Before anything reads the counters, so header and placeholders agree.
+	// Only the header is rewritten: force_unlimited hides the quota from the
+	// client's own traffic display, while placeholders keep reporting the truth.
 	if e.forceUnlimited && userInfo != nil {
 		h.Set(subinfo.UserInfoHeader, subinfo.ForceUnlimitedTotal(h.Get(subinfo.UserInfoHeader)))
 	}
@@ -132,8 +133,7 @@ func (e *Engine) Apply(ctx context.Context, h http.Header, rq Request) {
 	}
 
 	// The header carries the quota, so a limit condition only costs a panel
-	// request when it is absent. force_unlimited does not answer it: the
-	// condition is about the real quota, not what the client is shown.
+	// request when it is absent.
 	limitFromHeader := userInfo != nil && userInfo.Total >= 0
 
 	var info *panel.Info
@@ -166,7 +166,7 @@ func (e *Engine) Apply(ctx context.Context, h http.Header, rq Request) {
 		Panel:           info,
 	}
 	lookup := e.resolver.Lookup(source)
-	limit, limitKnown := e.resolver.RawLimit(source)
+	limit, limitKnown := e.resolver.Limit(source)
 
 	// Several rules may target one header, each with its own conditions; the
 	// first one whose conditions hold wins.

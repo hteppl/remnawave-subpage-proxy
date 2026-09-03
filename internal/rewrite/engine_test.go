@@ -310,7 +310,7 @@ func TestMarzbanLegacyLinkStillResolvesTraffic(t *testing.T) {
 	}
 }
 
-func TestForceUnlimitedRewritesHeaderAndPlaceholders(t *testing.T) {
+func TestForceUnlimitedRewritesOnlyTheHeader(t *testing.T) {
 	file := baseFile()
 	file.Traffic.ForceUnlimited = true
 	engine := New(Options{File: file, Fetcher: &stubFetcher{}, Logger: quietLogger()})
@@ -321,13 +321,15 @@ func TestForceUnlimitedRewritesHeaderAndPlaceholders(t *testing.T) {
 
 	engine.Apply(context.Background(), h, Request{ShortUUID: "abc"})
 
-	// The header is what actually makes a client display an unlimited plan.
+	// The header is what drives the client's own traffic display.
 	want := "upload=500000000; download=9500000000; total=0; expire=0"
 	if got := h.Get("subscription-userinfo"); got != want {
 		t.Errorf("subscription-userinfo = %q, want %q", got, want)
 	}
-	if got := h.Get("announce"); got != "10.00 GB of ∞" {
-		t.Errorf("announce = %q", got)
+	// Placeholders keep reporting the real quota, so an announce can still
+	// state it.
+	if got := h.Get("announce"); got != "10.00 GB of 100.00 GB" {
+		t.Errorf("announce = %q, want the real limit", got)
 	}
 }
 
@@ -471,8 +473,8 @@ func TestHasTrafficLimitFallsBackToPanel(t *testing.T) {
 	}
 }
 
-// force_unlimited changes what the client is shown, not what the condition
-// tests: a real quota still counts as limited.
+// force_unlimited only rewrites the header; conditions and placeholders both
+// keep seeing the real quota.
 func TestHasTrafficLimitIgnoresForceUnlimited(t *testing.T) {
 	file := baseFile()
 	file.Template.ScanAllHeaders = false
@@ -494,9 +496,8 @@ func TestHasTrafficLimitIgnoresForceUnlimited(t *testing.T) {
 	if got := h.Get("x-unlimited"); got != "" {
 		t.Errorf("x-unlimited = %q, want it skipped", got)
 	}
-	// The client is still shown an unlimited plan.
-	if got := h.Get("announce"); got != "∞" {
-		t.Errorf("announce = %q, want ∞", got)
+	if got := h.Get("announce"); got != "100.00 GB" {
+		t.Errorf("announce = %q, want the real limit", got)
 	}
 	if !strings.Contains(h.Get("subscription-userinfo"), "total=0") {
 		t.Errorf("subscription-userinfo = %q, want total=0", h.Get("subscription-userinfo"))

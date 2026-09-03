@@ -224,7 +224,8 @@ func TestForceUnlimitedTotal(t *testing.T) {
 	}
 }
 
-func TestForceUnlimitedResolver(t *testing.T) {
+// force_unlimited is a header-level concern; the resolver never applies it.
+func TestForceUnlimitedDoesNotAffectPlaceholders(t *testing.T) {
 	file := testFile()
 	file.Traffic.ForceUnlimited = true
 	r := NewResolver(file)
@@ -233,35 +234,17 @@ func TestForceUnlimitedResolver(t *testing.T) {
 	lookup := r.Lookup(Source{ShortUUID: "abc", UserInfo: &ui})
 
 	want := map[string]string{
-		// Real usage is still reported; only the ceiling is hidden.
 		"TRAFFIC_USED":         "10.00 GB",
-		"TRAFFIC_LIMIT":        "∞",
-		"TRAFFIC_AVAILABLE":    "∞",
-		"TRAFFIC_USED_PERCENT": "0",
-		"PROGRESS_BAR":         "▱▱▱▱▱▱▱▱▱▱",
+		"TRAFFIC_LIMIT":        "100.00 GB",
+		"TRAFFIC_AVAILABLE":    "90.00 GB",
+		"TRAFFIC_USED_PERCENT": "10",
+		"PROGRESS_BAR":         "▰▱▱▱▱▱▱▱▱▱",
 	}
 	for name, expected := range want {
 		got, ok := lookup(name)
 		if !ok || got != expected {
 			t.Errorf("%s = %q (ok=%v), want %q", name, got, ok, expected)
 		}
-	}
-}
-
-// The override does not depend on having any counters to start from.
-func TestForceUnlimitedWithoutCounters(t *testing.T) {
-	file := testFile()
-	file.Traffic.ForceUnlimited = true
-	r := NewResolver(file)
-
-	lookup := r.Lookup(Source{ShortUUID: "abc"})
-	for _, name := range []string{"TRAFFIC_LIMIT", "TRAFFIC_AVAILABLE"} {
-		if got, ok := lookup(name); !ok || got != "∞" {
-			t.Errorf("%s = %q (ok=%v), want ∞", name, got, ok)
-		}
-	}
-	if _, ok := lookup("TRAFFIC_USED"); ok {
-		t.Error("TRAFFIC_USED must stay unresolved with no counters")
 	}
 }
 

@@ -69,8 +69,9 @@ type TrafficFormat struct {
 	BinaryUnits bool     `yaml:"binary_units"`
 	Unlimited   string   `yaml:"unlimited"`
 	Units       []string `yaml:"units"`
-	// ForceUnlimited sends total=0 and renders the limit placeholders as
-	// Unlimited. Used traffic and expiry are untouched.
+	// ForceUnlimited sends subscription-userinfo with total=0, so the client's
+	// own traffic display shows no quota. Placeholders and conditions keep
+	// reporting the real one.
 	ForceUnlimited bool `yaml:"force_unlimited"`
 }
 
