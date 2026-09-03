@@ -58,10 +58,14 @@ jobs:
             GOARM=$(echo "$target" | cut -d/ -f3)
 
             suffix="${GOOS}_${GOARCH}"
-            [ -n "$GOARM" ] && suffix="${suffix}v${GOARM}"
+            if [ -n "$GOARM" ]; then
+              suffix="${suffix}v${GOARM}"
+            fi
 
             bin=$NAME
-            [ "$GOOS" = windows ] && bin="${NAME}.exe"
+            if [ "$GOOS" = windows ]; then
+              bin="${NAME}.exe"
+            fi
 
             stage="stage/${NAME}_${VERSION}_${suffix}"
             mkdir -p "$stage"
@@ -78,7 +82,16 @@ jobs:
             echo "built ${suffix}"
           done
 
-          (cd dist && sha256sum -- *.tar.gz *.zip > checksums.txt)
+          if [ -z "$(ls -A dist)" ]; then
+            echo "no artifacts were produced" >&2
+            exit 1
+          fi
+
+          (
+            cd dist
+            files=$(find . -maxdepth 1 -type f | sed 's|^\./||' | sort)
+            sha256sum $files > checksums.txt
+          )
           cat dist/checksums.txt
 
       - name: Publish to the release
