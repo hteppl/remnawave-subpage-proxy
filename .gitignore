@@ -35,4 +35,6 @@ go.work.sum
 config.yaml
 .env.subscription-page
 bin/
+dist/
+stage/
 tmp/

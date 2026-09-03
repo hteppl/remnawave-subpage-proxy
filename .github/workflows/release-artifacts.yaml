@@ -1,0 +1,92 @@
+name: Release Artifacts
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build and attach artifacts to
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  artifacts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build archives and checksums
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          set -eu
+
+          NAME=subpage-proxy
+          PKG=./cmd/subpage-proxy
+          MODULE=github.com/hteppl/remnawave-subpage-proxy
+          VERSION=${TAG#v}
+          BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          LDFLAGS="-s -w \
+            -X ${MODULE}/internal/version.Version=${VERSION} \
+            -X ${MODULE}/internal/version.Commit=${COMMIT} \
+            -X ${MODULE}/internal/version.Date=${BUILD_DATE}"
+
+          # GOOS/GOARCH[/GOARM]
+          TARGETS="
+            linux/amd64 linux/arm64 linux/arm/7 linux/arm/6 linux/386 linux/riscv64
+          "
+
+          mkdir -p dist
+          for target in $TARGETS; do
+            GOOS=$(echo "$target" | cut -d/ -f1)
+            GOARCH=$(echo "$target" | cut -d/ -f2)
+            GOARM=$(echo "$target" | cut -d/ -f3)
+
+            suffix="${GOOS}_${GOARCH}"
+            [ -n "$GOARM" ] && suffix="${suffix}v${GOARM}"
+
+            bin=$NAME
+            [ "$GOOS" = windows ] && bin="${NAME}.exe"
+
+            stage="stage/${NAME}_${VERSION}_${suffix}"
+            mkdir -p "$stage"
+            cp LICENSE README.md config.example.yaml .env.example "$stage/"
+
+            CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" GOARM="$GOARM" \
+              go build -trimpath -ldflags "$LDFLAGS" -o "$stage/$bin" "$PKG"
+
+            if [ "$GOOS" = windows ]; then
+              (cd "$stage" && zip -qr "../../dist/${NAME}_${VERSION}_${suffix}.zip" .)
+            else
+              tar -czf "dist/${NAME}_${VERSION}_${suffix}.tar.gz" -C "$stage" .
+            fi
+            echo "built ${suffix}"
+          done
+
+          (cd dist && sha256sum -- *.tar.gz *.zip > checksums.txt)
+          cat dist/checksums.txt
+
+      - name: Publish to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --verify-tag --generate-notes
+          fi
+          gh release upload "$TAG" dist/* --clobber
