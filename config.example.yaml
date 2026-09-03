@@ -58,6 +58,18 @@ headers:
   #   when:
   #     client_types: [clash, json]
 
+  # - name: announce
+  #   template: "{BRAND} · {TRAFFIC_USED} of {TRAFFIC_LIMIT} used"
+  #   encode: base64-prefixed
+  #   when:
+  #     has_traffic_limit: true
+
+  # - name: announce
+  #   template: "{BRAND} · unlimited traffic"
+  #   encode: base64-prefixed
+  #   when:
+  #     has_traffic_limit: false
+
   # - name: support-url
   #   template: "https://t.me/my_support_bot"
   #   when:

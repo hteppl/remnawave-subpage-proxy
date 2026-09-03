@@ -95,6 +95,14 @@ func NewResolver(f config.File) *Resolver {
 	}
 }
 
+// RawLimit reports the traffic allowance in bytes as configured in the panel,
+// ignoring force_unlimited, and whether it could be determined at all. Zero
+// means unlimited.
+func (r *Resolver) RawLimit(src Source) (int64, bool) {
+	_, limit, ok := r.rawCounters(src)
+	return limit, ok && limit >= 0
+}
+
 // NeedsPanel reports whether any name still requires the panel API.
 func (r *Resolver) NeedsPanel(names []string, haveUserInfo bool) bool {
 	for _, name := range names {
@@ -265,6 +273,19 @@ func (r *Resolver) resolve(name string, src Source) (string, bool) {
 // trafficCounters prefers the response header: consistent with the payload the
 // client just received, and free.
 func (r *Resolver) trafficCounters(src Source) (used, limit int64, ok bool) {
+	used, limit, ok = r.rawCounters(src)
+
+	// A zero limit already means unlimited everywhere below, and the answer does
+	// not depend on having any counters.
+	if r.forceUnlimited {
+		limit, ok = 0, true
+	}
+	return used, limit, ok
+}
+
+// rawCounters reports the quota as the panel and headers actually hold it,
+// without the force_unlimited presentation applied on top.
+func (r *Resolver) rawCounters(src Source) (used, limit int64, ok bool) {
 	used, limit = -1, -1
 
 	if src.UserInfo != nil {
@@ -273,14 +294,15 @@ func (r *Resolver) trafficCounters(src Source) (used, limit int64, ok bool) {
 			used, limit, ok = u, l, true
 		}
 	}
-	if !ok && src.Panel != nil {
-		used, limit, ok = src.Panel.User.UsedBytes(), src.Panel.User.LimitBytes(), true
-	}
-
-	// A zero limit already means unlimited everywhere below, and the answer does
-	// not depend on having any counters.
-	if r.forceUnlimited {
-		limit, ok = 0, true
+	if src.Panel != nil {
+		// Fill whatever the header left out rather than discarding the panel.
+		if used < 0 {
+			used = src.Panel.User.UsedBytes()
+		}
+		if limit < 0 {
+			limit = src.Panel.User.LimitBytes()
+		}
+		ok = ok || used >= 0 || limit >= 0
 	}
 	return used, limit, ok
 }

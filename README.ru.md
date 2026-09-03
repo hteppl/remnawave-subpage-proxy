@@ -263,12 +263,36 @@ headers:
     when:
       user_statuses: [ LIMITED, EXPIRED ]
 
+  # Тарифы с ограниченной квотой.
+  - name: announce
+    template: "израсходовано {TRAFFIC_USED} из {TRAFFIC_LIMIT}"
+    encode: base64-prefixed
+    when:
+      has_traffic_limit: true
+
+  # Безлимитные тарифы.
+  - name: x-plan
+    template: "Безлимитный трафик"
+    when:
+      has_traffic_limit: false
+
   # Значение по умолчанию, применяется только если панель не прислала заголовок.
   - name: support-url
     template: "https://t.me/my_support_bot"
     when:
       exists: false
 ```
+
+`has_traffic_limit` отличает ограниченную квоту от безлимитного тарифа, который
+Remnawave кодирует нулевым значением total. Значение читается из заголовка
+`subscription-userinfo`, поэтому обычно не требует запроса к панели; панель
+опрашивается, только если в заголовке нет поля total. Правило пропускается, если
+квоту определить не удалось.
+
+`traffic.force_unlimited` на это условие не влияет. Он меняет то, что видит
+клиент, тогда как `has_traffic_limit` проверяет квоту, реально заданную в панели,
+поэтому их можно сочетать: тариф с лимитом можно показывать как безлимитный и
+при этом ловить его условием `has_traffic_limit: true`.
 
 `user_statuses` всегда вызывает запрос к панели, поскольку статус отсутствует в
 заголовках ответа.

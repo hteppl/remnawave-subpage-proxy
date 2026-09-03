@@ -260,12 +260,36 @@ headers:
     when:
       user_statuses: [ LIMITED, EXPIRED ]
 
+  # Plans with a finite quota.
+  - name: announce
+    template: "{TRAFFIC_USED} of {TRAFFIC_LIMIT} used"
+    encode: base64-prefixed
+    when:
+      has_traffic_limit: true
+
+  # Unlimited plans.
+  - name: x-plan
+    template: "Unlimited traffic"
+    when:
+      has_traffic_limit: false
+
   # Default value, applied only if the panel did not send the header.
   - name: support-url
     template: "https://t.me/my_support_bot"
     when:
       exists: false
 ```
+
+`has_traffic_limit` distinguishes a finite quota from an unlimited plan, which
+Remnawave encodes as a zero total. It is read from the `subscription-userinfo`
+header and therefore normally costs no panel request; the panel is consulted
+only when that header carries no total. A rule is skipped when the quota cannot
+be determined at all.
+
+`traffic.force_unlimited` does not affect this condition. It changes what the
+client is shown, while `has_traffic_limit` tests the quota actually configured in
+the panel, so the two can be combined: a limited plan can be presented as
+unlimited and still match `has_traffic_limit: true`.
 
 `user_statuses` always triggers a panel request, as the status is not present in
 the response headers.

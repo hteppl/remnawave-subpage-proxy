@@ -96,7 +96,6 @@ func TestLoadFileRejectsBadInput(t *testing.T) {
 		"bad encode":         "headers:\n  - name: announce\n    encode: rot13\n",
 		"bad timezone":       "datetime:\n  timezone: Mars/Olympus\n",
 		"missing name":       "headers:\n  - template: hi\n",
-		"duplicate name":     "headers:\n  - name: announce\n    template: a\n  - name: Announce\n    template: b\n",
 		"remove + template":  "headers:\n  - name: announce\n    remove: true\n    template: hi\n",
 		"bad user_agent":     "headers:\n  - name: announce\n    when:\n      user_agent: \"[\"\n",
 		"bad var name":       "vars:\n  lower_case: x\n",
@@ -165,5 +164,32 @@ func TestLoadEnvRejectsBadURL(t *testing.T) {
 
 	if _, err := Load(); err == nil {
 		t.Error("a URL without a scheme should be rejected")
+	}
+}
+
+// Several rules may target one header, each scoped by its own conditions.
+func TestLoadFileAllowsSeveralRulesPerHeader(t *testing.T) {
+	cfg, err := loadFile(writeConfig(t, `
+headers:
+  - name: announce
+    template: "limited"
+    when:
+      has_traffic_limit: true
+  - name: announce
+    template: "unlimited"
+    when:
+      has_traffic_limit: false
+`), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Headers) != 2 {
+		t.Fatalf("headers = %d, want 2", len(cfg.Headers))
+	}
+	if cfg.Headers[0].When.HasTrafficLimit == nil || !*cfg.Headers[0].When.HasTrafficLimit {
+		t.Error("has_traffic_limit: true was not parsed")
+	}
+	if cfg.Headers[1].When.HasTrafficLimit == nil || *cfg.Headers[1].When.HasTrafficLimit {
+		t.Error("has_traffic_limit: false was not parsed")
 	}
 }

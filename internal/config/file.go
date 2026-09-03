@@ -112,7 +112,8 @@ type Condition struct {
 	UserStatuses []string `yaml:"user_statuses"`
 	UserAgent    string   `yaml:"user_agent"`
 	// Exists gates the rule on the upstream having sent the header.
-	Exists *bool `yaml:"exists"`
+	Exists          *bool `yaml:"exists"`
+	HasTrafficLimit *bool `yaml:"has_traffic_limit"`
 
 	userAgentRe *regexp.Regexp
 }
@@ -240,7 +241,6 @@ func (f *File) validate() error {
 		}
 	}
 
-	seen := make(map[string]int, len(f.Headers))
 	for i := range f.Headers {
 		rule := &f.Headers[i]
 		rule.Name = strings.TrimSpace(rule.Name)
@@ -248,12 +248,6 @@ func (f *File) validate() error {
 			problems = append(problems, fmt.Sprintf("headers[%d].name is required", i))
 			continue
 		}
-		key := strings.ToLower(rule.Name)
-		if prev, dup := seen[key]; dup {
-			problems = append(problems, fmt.Sprintf("headers[%d].name %q duplicates headers[%d]", i, rule.Name, prev))
-		}
-		seen[key] = i
-
 		if rule.Encode == "" {
 			rule.Encode = EncodeAuto
 		}

@@ -97,7 +97,6 @@ func (e *Engine) Apply(ctx context.Context, h http.Header, rq Request) {
 
 	// Before anything reads the counters, so header and placeholders agree.
 	if e.forceUnlimited && userInfo != nil {
-		userInfo.Total = 0
 		h.Set(subinfo.UserInfoHeader, subinfo.ForceUnlimitedTotal(h.Get(subinfo.UserInfoHeader)))
 	}
 
@@ -107,19 +106,28 @@ func (e *Engine) Apply(ctx context.Context, h http.Header, rq Request) {
 	}
 
 	var names []string
-	needsStatus := false
+	needsStatus, needsLimit := false, false
 	for _, c := range candidates {
 		if c.rule != nil && len(c.rule.When.UserStatuses) > 0 {
 			needsStatus = true
+		}
+		if c.rule != nil && c.rule.When.HasTrafficLimit != nil {
+			needsLimit = true
 		}
 		if !c.remove {
 			names = append(names, tmpl.Names(c.source)...)
 		}
 	}
 
+	// The header carries the quota, so a limit condition only costs a panel
+	// request when it is absent. force_unlimited does not answer it: the
+	// condition is about the real quota, not what the client is shown.
+	limitFromHeader := userInfo != nil && userInfo.Total >= 0
+
 	var info *panel.Info
 	if e.fetcher != nil && rq.ShortUUID != "" &&
-		(e.alwaysFetch || needsStatus || e.resolver.NeedsPanel(names, userInfo != nil)) {
+		(e.alwaysFetch || needsStatus || (needsLimit && !limitFromHeader) ||
+			e.resolver.NeedsPanel(names, userInfo != nil)) {
 		realIP := ""
 		if e.forwardRealIP {
 			realIP = rq.ClientIP
@@ -136,7 +144,7 @@ func (e *Engine) Apply(ctx context.Context, h http.Header, rq Request) {
 		}
 	}
 
-	lookup := e.resolver.Lookup(subinfo.Source{
+	source := subinfo.Source{
 		ShortUUID:       rq.ShortUUID,
 		ClientType:      rq.ClientType,
 		UserAgent:       rq.UserAgent,
@@ -144,12 +152,22 @@ func (e *Engine) Apply(ctx context.Context, h http.Header, rq Request) {
 		SubscriptionURL: rq.SubscriptionURL,
 		UserInfo:        userInfo,
 		Panel:           info,
-	})
+	}
+	lookup := e.resolver.Lookup(source)
+	limit, limitKnown := e.resolver.RawLimit(source)
 
+	// Several rules may target one header, each with its own conditions; the
+	// first one whose conditions hold wins.
+	written := make(map[string]struct{}, len(candidates))
 	for _, c := range candidates {
-		if !matchesStatus(c.rule, info) {
+		key := http.CanonicalHeaderKey(c.name)
+		if _, done := written[key]; done {
 			continue
 		}
+		if !matchesStatus(c.rule, info) || !matchesTrafficLimit(c.rule, limit, limitKnown) {
+			continue
+		}
+		written[key] = struct{}{}
 		if c.remove {
 			h.Del(c.name)
 			continue
@@ -304,6 +322,18 @@ func matchesStatus(rule *config.HeaderRule, info *panel.Info) bool {
 		return false
 	}
 	return slices.Contains(rule.When.UserStatuses, strings.ToUpper(info.User.UserStatus))
+}
+
+// matchesTrafficLimit gates a rule on the plan having a finite quota. A zero
+// limit is unlimited; an undeterminable one skips the rule rather than guessing.
+func matchesTrafficLimit(rule *config.HeaderRule, limit int64, known bool) bool {
+	if rule == nil || rule.When.HasTrafficLimit == nil {
+		return true
+	}
+	if !known {
+		return false
+	}
+	return (limit > 0) == *rule.When.HasTrafficLimit
 }
 
 func firstValue(h http.Header, name string) (string, bool) {

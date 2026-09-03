@@ -362,3 +362,171 @@ func TestForceUnlimitedOffByDefault(t *testing.T) {
 		t.Errorf("subscription-userinfo = %q, want it untouched", got)
 	}
 }
+
+func TestHasTrafficLimitCondition(t *testing.T) {
+	limited := "upload=500000000; download=9500000000; total=100000000000; expire=0"
+	unlimited := "upload=500000000; download=9500000000; total=0; expire=0"
+
+	file := baseFile()
+	file.Template.ScanAllHeaders = false
+	file.Headers = []config.HeaderRule{
+		{
+			Name:     "announce",
+			Template: ptr("{TRAFFIC_USED} of {TRAFFIC_LIMIT}"),
+			When:     config.Condition{HasTrafficLimit: ptr(true)},
+		},
+		{
+			Name:     "x-plan",
+			Template: ptr("unlimited"),
+			When:     config.Condition{HasTrafficLimit: ptr(false)},
+		},
+	}
+	engine := New(Options{File: file, Fetcher: &stubFetcher{}, Logger: quietLogger()})
+
+	t.Run("plan with a quota", func(t *testing.T) {
+		h := http.Header{}
+		h.Set("subscription-userinfo", limited)
+		engine.Apply(context.Background(), h, Request{ShortUUID: "abc"})
+
+		if got := h.Get("announce"); got != "10.00 GB of 100.00 GB" {
+			t.Errorf("announce = %q", got)
+		}
+		if got := h.Get("x-plan"); got != "" {
+			t.Errorf("x-plan = %q, want the unlimited rule skipped", got)
+		}
+	})
+
+	t.Run("unlimited plan", func(t *testing.T) {
+		h := http.Header{}
+		h.Set("subscription-userinfo", unlimited)
+		engine.Apply(context.Background(), h, Request{ShortUUID: "abc"})
+
+		if got := h.Get("x-plan"); got != "unlimited" {
+			t.Errorf("x-plan = %q", got)
+		}
+		if got := h.Get("announce"); got != "" {
+			t.Errorf("announce = %q, want the limited rule skipped", got)
+		}
+	})
+
+	t.Run("undeterminable limit skips both", func(t *testing.T) {
+		h := http.Header{}
+		h.Set("subscription-userinfo", "upload=1; download=2")
+		engine.Apply(context.Background(), h, Request{ShortUUID: "abc"})
+
+		if h.Get("announce") != "" || h.Get("x-plan") != "" {
+			t.Errorf("both rules should be skipped, got %q / %q", h.Get("announce"), h.Get("x-plan"))
+		}
+	})
+}
+
+// The quota is in the response header, so the condition alone costs no request.
+func TestHasTrafficLimitUsesHeaderWithoutPanel(t *testing.T) {
+	file := baseFile()
+	file.Template.ScanAllHeaders = false
+	file.Headers = []config.HeaderRule{{
+		Name:     "announce",
+		Template: ptr("limited plan"),
+		When:     config.Condition{HasTrafficLimit: ptr(true)},
+	}}
+	fetcher := &stubFetcher{}
+	engine := New(Options{File: file, Fetcher: fetcher, Logger: quietLogger()})
+
+	h := http.Header{}
+	h.Set("subscription-userinfo", userInfo)
+	engine.Apply(context.Background(), h, Request{ShortUUID: "abc"})
+
+	if h.Get("announce") != "limited plan" {
+		t.Errorf("announce = %q", h.Get("announce"))
+	}
+	if fetcher.calls != 0 {
+		t.Errorf("panel called %d times, want 0", fetcher.calls)
+	}
+}
+
+// Without the header the quota can only come from the panel.
+func TestHasTrafficLimitFallsBackToPanel(t *testing.T) {
+	file := baseFile()
+	file.Template.ScanAllHeaders = false
+	file.Headers = []config.HeaderRule{{
+		Name:     "announce",
+		Template: ptr("limited plan"),
+		When:     config.Condition{HasTrafficLimit: ptr(true)},
+	}}
+	fetcher := &stubFetcher{info: &panel.Info{
+		IsFound: true,
+		User:    panel.User{TrafficUsedBytes: "1", TrafficLimitBytes: "100000000000"},
+	}}
+	engine := New(Options{File: file, Fetcher: fetcher, Logger: quietLogger()})
+
+	h := http.Header{}
+	h.Set("announce", "placeholder so the response is recognised")
+	engine.Apply(context.Background(), h, Request{ShortUUID: "abc"})
+
+	if h.Get("announce") != "limited plan" {
+		t.Errorf("announce = %q", h.Get("announce"))
+	}
+	if fetcher.calls != 1 {
+		t.Errorf("panel called %d times, want 1", fetcher.calls)
+	}
+}
+
+// force_unlimited changes what the client is shown, not what the condition
+// tests: a real quota still counts as limited.
+func TestHasTrafficLimitIgnoresForceUnlimited(t *testing.T) {
+	file := baseFile()
+	file.Template.ScanAllHeaders = false
+	file.Traffic.ForceUnlimited = true
+	file.Headers = []config.HeaderRule{
+		{Name: "x-limited", Template: ptr("has a quota"), When: config.Condition{HasTrafficLimit: ptr(true)}},
+		{Name: "x-unlimited", Template: ptr("no quota"), When: config.Condition{HasTrafficLimit: ptr(false)}},
+		{Name: "announce", Template: ptr("{TRAFFIC_LIMIT}")},
+	}
+	engine := New(Options{File: file, Fetcher: &stubFetcher{}, Logger: quietLogger()})
+
+	h := http.Header{}
+	h.Set("subscription-userinfo", userInfo) // a real 100 GB quota
+	engine.Apply(context.Background(), h, Request{ShortUUID: "abc"})
+
+	if got := h.Get("x-limited"); got != "has a quota" {
+		t.Errorf("x-limited = %q, want the condition to see the real quota", got)
+	}
+	if got := h.Get("x-unlimited"); got != "" {
+		t.Errorf("x-unlimited = %q, want it skipped", got)
+	}
+	// The client is still shown an unlimited plan.
+	if got := h.Get("announce"); got != "∞" {
+		t.Errorf("announce = %q, want ∞", got)
+	}
+	if !strings.Contains(h.Get("subscription-userinfo"), "total=0") {
+		t.Errorf("subscription-userinfo = %q, want total=0", h.Get("subscription-userinfo"))
+	}
+}
+
+// Several rules may target one header; the first whose conditions hold wins.
+func TestFirstMatchingRuleWinsPerHeader(t *testing.T) {
+	file := baseFile()
+	file.Template.ScanAllHeaders = false
+	file.Headers = []config.HeaderRule{
+		{Name: "announce", Template: ptr("limited"), When: config.Condition{HasTrafficLimit: ptr(true)}},
+		{Name: "announce", Template: ptr("unlimited"), When: config.Condition{HasTrafficLimit: ptr(false)}},
+		{Name: "announce", Template: ptr("fallback")},
+	}
+	engine := New(Options{File: file, Fetcher: &stubFetcher{}, Logger: quietLogger()})
+
+	for _, tc := range []struct{ name, header, want string }{
+		{"quota", "upload=0; download=1; total=100000000000; expire=0", "limited"},
+		{"unlimited", "upload=0; download=1; total=0; expire=0", "unlimited"},
+		{"unknown quota falls through to the unconditional rule", "upload=1; download=2", "fallback"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := http.Header{}
+			h.Set("subscription-userinfo", tc.header)
+			engine.Apply(context.Background(), h, Request{ShortUUID: "abc"})
+
+			if got := h.Values("announce"); len(got) != 1 || got[0] != tc.want {
+				t.Errorf("announce = %v, want exactly [%q]", got, tc.want)
+			}
+		})
+	}
+}
