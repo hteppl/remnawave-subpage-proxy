@@ -80,7 +80,13 @@ type candidate struct {
 	remove  bool
 	rule    *config.HeaderRule
 	present bool
+	original    string
+	hasOriginal bool
 }
+
+// originalValueName is answered per header, not per request, so the engine
+// layers it over the resolver's lookup.
+const originalValueName = "ORIGINAL_VALUE"
 
 // Apply rewrites h in place, calling the panel only when something needs it.
 func (e *Engine) Apply(ctx context.Context, h http.Header, rq Request) {
@@ -115,7 +121,13 @@ func (e *Engine) Apply(ctx context.Context, h http.Header, rq Request) {
 			needsLimit = true
 		}
 		if !c.remove {
-			names = append(names, tmpl.Names(c.source)...)
+			used := tmpl.Names(c.source)
+			names = append(names, used...)
+			// Placeholders the panel put inside the header are resolved too, so
+			// they have to be counted when deciding whether the panel is needed.
+			if c.hasOriginal && slices.Contains(used, originalValueName) {
+				names = append(names, tmpl.Names(c.original)...)
+			}
 		}
 	}
 
@@ -173,7 +185,7 @@ func (e *Engine) Apply(ctx context.Context, h http.Header, rq Request) {
 			continue
 		}
 
-		rendered := tmpl.Render(c.source, lookup, e.unknown)
+		rendered := tmpl.Render(c.source, e.withOriginal(lookup, c), e.unknown)
 		if c.rule != nil && c.rule.MaxLength > 0 {
 			rendered = tmpl.Truncate(rendered, c.rule.MaxLength)
 		}
@@ -240,6 +252,7 @@ func (e *Engine) candidateFor(name, current string, present bool, rule *config.H
 	if rule != nil {
 		encode = rule.Encode
 	}
+	original, hasOriginal := e.originalValue(current, present)
 
 	// A rule with an explicit template replaces the value outright.
 	if rule != nil && rule.Template != nil {
@@ -250,10 +263,13 @@ func (e *Engine) candidateFor(name, current string, present bool, rule *config.H
 			}
 		}
 		return candidate{
-			name:   name,
-			source: *rule.Template,
-			form:   overrideForm(form, encode),
-			rule:   rule,
+			name:        name,
+			source:      *rule.Template,
+			form:        overrideForm(form, encode),
+			rule:        rule,
+			present:     present,
+			original:    original,
+			hasOriginal: hasOriginal,
 		}, true
 	}
 
@@ -266,11 +282,13 @@ func (e *Engine) candidateFor(name, current string, present bool, rule *config.H
 	if e.opts.DecodeBase64 {
 		if decoded, form, ok := DecodeBase64(current); ok && tmpl.Contains(decoded) {
 			return candidate{
-				name:    name,
-				source:  decoded,
-				form:    overrideForm(form, encode),
-				rule:    rule,
-				present: true,
+				name:        name,
+				source:      decoded,
+				form:        overrideForm(form, encode),
+				rule:        rule,
+				present:     true,
+				original:    original,
+				hasOriginal: hasOriginal,
 			}, true
 		}
 	}
@@ -279,12 +297,43 @@ func (e *Engine) candidateFor(name, current string, present bool, rule *config.H
 		return candidate{}, false
 	}
 	return candidate{
-		name:    name,
-		source:  current,
-		form:    overrideForm(FormPlain, encode),
-		rule:    rule,
-		present: true,
+		name:        name,
+		source:      current,
+		form:        overrideForm(FormPlain, encode),
+		rule:        rule,
+		present:     true,
+		original:    original,
+		hasOriginal: hasOriginal,
 	}, true
+}
+
+// withOriginal adds {ORIGINAL_VALUE} for one header. The panel's own
+// placeholders inside it are resolved with the base lookup, which does not know
+// the name, so the substitution cannot recurse.
+func (e *Engine) withOriginal(base func(string) (string, bool), c candidate) tmpl.Lookup {
+	return func(name string) (string, bool) {
+		if name != originalValueName {
+			return base(name)
+		}
+		if !c.hasOriginal {
+			return "", false
+		}
+		return tmpl.Render(c.original, base, e.unknown), true
+	}
+}
+
+// originalValue is the upstream text a template can embed, decoded when the
+// panel base64-encoded it.
+func (e *Engine) originalValue(current string, present bool) (string, bool) {
+	if !present {
+		return "", false
+	}
+	if e.opts.DecodeBase64 {
+		if decoded, _, ok := DecodeBase64(current); ok {
+			return decoded, true
+		}
+	}
+	return current, true
 }
 
 func overrideForm(detected Form, encode config.Encoding) Form {

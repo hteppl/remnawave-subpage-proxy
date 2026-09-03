@@ -530,3 +530,149 @@ func TestFirstMatchingRuleWinsPerHeader(t *testing.T) {
 		})
 	}
 }
+
+func TestOriginalValue(t *testing.T) {
+	t.Run("wraps the panel's text", func(t *testing.T) {
+		file := baseFile()
+		file.Headers = []config.HeaderRule{{
+			Name:     "announce",
+			Template: ptr("{ORIGINAL_VALUE}\n---\n{TRAFFIC_AVAILABLE} left"),
+		}}
+		engine := New(Options{File: file, Fetcher: &stubFetcher{}, Logger: quietLogger()})
+
+		h := http.Header{}
+		h.Set("subscription-userinfo", userInfo)
+		h.Set("announce", "Welcome to the service")
+		engine.Apply(context.Background(), h, Request{ShortUUID: "abc"})
+
+		want := "Welcome to the service\n---\n90.00 GB left"
+		if got := h.Get("announce"); got != want {
+			t.Errorf("announce = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("decodes a base64 original", func(t *testing.T) {
+		file := baseFile()
+		file.Headers = []config.HeaderRule{{
+			Name:     "announce",
+			Template: ptr("[{ORIGINAL_VALUE}]"),
+			Encode:   config.EncodeNone,
+		}}
+		engine := New(Options{File: file, Fetcher: &stubFetcher{}, Logger: quietLogger()})
+
+		h := http.Header{}
+		h.Set("subscription-userinfo", userInfo)
+		h.Set("announce", Base64Prefix+base64.StdEncoding.EncodeToString([]byte("Привет")))
+		engine.Apply(context.Background(), h, Request{ShortUUID: "abc"})
+
+		if got := h.Get("announce"); got != "[Привет]" {
+			t.Errorf("announce = %q", got)
+		}
+	})
+
+	// The panel's own placeholders have to work inside the embedded text.
+	t.Run("resolves placeholders inside the original", func(t *testing.T) {
+		file := baseFile()
+		file.Headers = []config.HeaderRule{{
+			Name:     "announce",
+			Template: ptr("{ORIGINAL_VALUE} · MyProject"),
+		}}
+		engine := New(Options{File: file, Fetcher: &stubFetcher{}, Logger: quietLogger()})
+
+		h := http.Header{}
+		h.Set("subscription-userinfo", userInfo)
+		h.Set("announce", "Used {TRAFFIC_USED}")
+		engine.Apply(context.Background(), h, Request{ShortUUID: "abc"})
+
+		if got := h.Get("announce"); got != "Used 10.00 GB · MyProject" {
+			t.Errorf("announce = %q", got)
+		}
+	})
+
+	// A self-reference must not recurse.
+	t.Run("original referencing itself is inserted once", func(t *testing.T) {
+		file := baseFile()
+		file.Headers = []config.HeaderRule{{
+			Name:     "announce",
+			Template: ptr("<{ORIGINAL_VALUE}>"),
+		}}
+		engine := New(Options{File: file, Fetcher: &stubFetcher{}, Logger: quietLogger()})
+
+		h := http.Header{}
+		h.Set("subscription-userinfo", userInfo)
+		h.Set("announce", "a {ORIGINAL_VALUE} b")
+		engine.Apply(context.Background(), h, Request{ShortUUID: "abc"})
+
+		if got := h.Get("announce"); got != "<a {ORIGINAL_VALUE} b>" {
+			t.Errorf("announce = %q, want the inner reference left as text", got)
+		}
+	})
+
+	t.Run("absent header leaves it unresolved", func(t *testing.T) {
+		file := baseFile()
+		file.Template.ScanAllHeaders = false
+		file.Headers = []config.HeaderRule{{
+			Name:     "announce",
+			Template: ptr("{ORIGINAL_VALUE|default:nothing} · {TRAFFIC_USED}"),
+		}}
+		engine := New(Options{File: file, Fetcher: &stubFetcher{}, Logger: quietLogger()})
+
+		h := http.Header{}
+		h.Set("subscription-userinfo", userInfo)
+		engine.Apply(context.Background(), h, Request{ShortUUID: "abc"})
+
+		if got := h.Get("announce"); got != "nothing · 10.00 GB" {
+			t.Errorf("announce = %q", got)
+		}
+	})
+}
+
+// A panel-backed placeholder living inside the original must still be resolved,
+// which means it has to be counted when deciding whether to call the panel.
+func TestOriginalValueTriggersPanelLookup(t *testing.T) {
+	file := baseFile()
+	file.Headers = []config.HeaderRule{{
+		Name:     "announce",
+		Template: ptr("{ORIGINAL_VALUE} · MyProject"),
+	}}
+	fetcher := &stubFetcher{info: &panel.Info{
+		IsFound: true,
+		User:    panel.User{Username: "alice", UserStatus: "ACTIVE"},
+	}}
+	engine := New(Options{File: file, Fetcher: fetcher, Logger: quietLogger()})
+
+	h := http.Header{}
+	h.Set("subscription-userinfo", userInfo)
+	h.Set("announce", "Hello {USERNAME}")
+	engine.Apply(context.Background(), h, Request{ShortUUID: "abc"})
+
+	if got := h.Get("announce"); got != "Hello alice · MyProject" {
+		t.Errorf("announce = %q", got)
+	}
+	if fetcher.calls != 1 {
+		t.Errorf("panel calls = %d, want 1", fetcher.calls)
+	}
+}
+
+// A template that discards the original must not pay for its placeholders.
+func TestUnusedOriginalDoesNotTriggerPanelLookup(t *testing.T) {
+	file := baseFile()
+	file.Headers = []config.HeaderRule{{
+		Name:     "announce",
+		Template: ptr("{TRAFFIC_AVAILABLE} left"),
+	}}
+	fetcher := &stubFetcher{}
+	engine := New(Options{File: file, Fetcher: fetcher, Logger: quietLogger()})
+
+	h := http.Header{}
+	h.Set("subscription-userinfo", userInfo)
+	h.Set("announce", "Hello {USERNAME}")
+	engine.Apply(context.Background(), h, Request{ShortUUID: "abc"})
+
+	if got := h.Get("announce"); got != "90.00 GB left" {
+		t.Errorf("announce = %q", got)
+	}
+	if fetcher.calls != 0 {
+		t.Errorf("panel calls = %d, want 0: the original is discarded", fetcher.calls)
+	}
+}

@@ -48,6 +48,7 @@ var Catalog = map[string]Origin{
 	"TRAFFIC_LIMIT_STRATEGY": OriginPanel,
 	"LIFETIME_TRAFFIC_USED":  OriginPanel,
 
+    "ORIGINAL_VALUE":   OriginLocal,
 	"SHORT_UUID":       OriginLocal,
 	"SUBSCRIPTION_URL": OriginLocal,
 	"CLIENT_TYPE":      OriginLocal,
