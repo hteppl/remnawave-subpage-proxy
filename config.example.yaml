@@ -79,3 +79,11 @@ headers:
 
   # - name: profile-web-page-url
   #   remove: true
+
+# Answer scanner probes (/.env, /wp-admin, .php ...) with 404 before they reach
+# the upstream. false turns the whole filter off, patterns included.
+block:
+  enabled: true
+  # Extra paths to refuse, as Go regular expressions.
+  # patterns:
+  #   - "(?i)/telescope"

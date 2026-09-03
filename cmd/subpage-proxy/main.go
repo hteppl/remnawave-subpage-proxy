@@ -125,6 +125,7 @@ func run() error {
 		Timeout:    cfg.Upstream.Timeout,
 		Engine:     engine,
 		RealIP:     ipResolver,
+		Blocker:    proxy.NewBlocker(cfg.File.Block, cfg.Upstream.SubPrefix),
 		SubCache:   subCache,
 		ForceHTTPS: forceHTTPS(),
 		Logger:     log,

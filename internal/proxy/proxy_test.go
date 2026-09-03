@@ -545,3 +545,23 @@ func TestUpstreamDropIsLoggedAtDebug(t *testing.T) {
 		t.Errorf("a deliberate drop should not warn:\n%s", logged.String())
 	}
 }
+
+func newProxyWithBlocker(t *testing.T, upstreamURL string, b *Blocker) *Proxy {
+	t.Helper()
+	target, err := url.Parse(upstreamURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver, err := realip.Parse("1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return New(Options{
+		Upstream: target,
+		Timeout:  2 * time.Second,
+		Engine:   testEngine(t, nil),
+		RealIP:   resolver,
+		Blocker:  b,
+		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+}

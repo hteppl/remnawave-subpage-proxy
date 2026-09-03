@@ -396,6 +396,29 @@ Two consequences should be considered: traffic counters in a replayed response
 are as old as the cache entry, and a user revoked during an outage retains access
 until the TTL expires. `SUBSCRIPTION_CACHE_TTL` should be selected accordingly.
 
+### Blocking scanner probes
+
+Automated sweeps for `/.env`, `/.git/HEAD`, `/config/.env` and the like are
+refused by the proxy itself, so they never reach the subscription page or the
+panel. They get a bare `404` and are logged only at `debug` level:
+
+```yaml
+block:
+  enabled: true
+  patterns:
+    - "(?i)/telescope"
+```
+
+Setting `enabled: false` turns the whole filter off, custom `patterns`
+included, and every probe is forwarded like any other request.
+
+Built in are any path segment starting with a dot — except `.well-known`, which
+carries ACME challenges — the file types a probe asks for (`.php`, `.sql`,
+`.bak`, `.ini`, `.key` and friends), and first segments such as `env`,
+`wp-admin` or `phpmyadmin`. Short UUIDs are 16-character nanoids, so none of
+these can collide with a real subscription, and the page's own assets are
+untouched.
+
 ### Health
 
 `/healthz` on `HEALTH_PORT` reports liveness; `/readyz` additionally verifies

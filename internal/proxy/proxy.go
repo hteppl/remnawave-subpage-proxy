@@ -36,6 +36,7 @@ type Options struct {
 	Timeout   time.Duration
 	Engine    *rewrite.Engine
 	RealIP    *realip.Resolver
+	Blocker   *Blocker
 	// SubCache replays the last good response while the upstream is down.
 	SubCache *subcache.Cache
 	// ForceHTTPS claims TLS termination to an upstream that demands it.
@@ -45,6 +46,7 @@ type Options struct {
 
 type Proxy struct {
 	rp         *httputil.ReverseProxy
+	blocker    *Blocker
 	subPrefix  string
 	realIP     *realip.Resolver
 	subCache   *subcache.Cache
@@ -59,6 +61,7 @@ func New(o Options) *Proxy {
 	}
 
 	p := &Proxy{
+		blocker:    o.Blocker,
 		subPrefix:  o.SubPrefix,
 		realIP:     o.RealIP,
 		subCache:   o.SubCache,
@@ -120,6 +123,12 @@ func New(o Options) *Proxy {
 }
 
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if p.blocker.Blocked(r.URL.Path) {
+		p.log.Debug("refused a probe without forwarding it", "path", r.URL.Path)
+		refuse(w)
+		return
+	}
+
 	route := ParseRoute(r.URL.Path, p.subPrefix)
 	userAgent := r.Header.Get("User-Agent")
 

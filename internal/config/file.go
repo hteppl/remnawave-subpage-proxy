@@ -139,6 +139,33 @@ type HeaderRule struct {
 	MaxLength int `yaml:"max_length"`
 }
 
+// Block refuses obvious scanner probes at the proxy, so they never reach the
+// subscription page or the panel.
+type Block struct {
+	Enabled bool `yaml:"enabled"`
+	// Patterns are extra Go regular expressions matched against the path.
+	Patterns []string `yaml:"patterns"`
+
+	compiled []*regexp.Regexp
+}
+
+// Compiled returns the parsed extra patterns.
+func (b Block) Compiled() []*regexp.Regexp { return b.compiled }
+
+// CompileBlock parses the extra patterns of a Block built outside the config
+// loader, which is what tests and callers assembling one by hand need.
+func CompileBlock(b Block) (Block, error) {
+	b.compiled = nil
+	for i, pattern := range b.Patterns {
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			return b, fmt.Errorf("block.patterns[%d]: %w", i, err)
+		}
+		b.compiled = append(b.compiled, re)
+	}
+	return b, nil
+}
+
 type File struct {
 	Traffic     TrafficFormat     `yaml:"traffic"`
 	DateTime    DateTimeFormat    `yaml:"datetime"`
@@ -146,6 +173,7 @@ type File struct {
 	Template    TemplateOpts      `yaml:"template"`
 	Vars        map[string]string `yaml:"vars"`
 	Headers     []HeaderRule      `yaml:"headers"`
+	Block       Block             `yaml:"block"`
 }
 
 func defaultFile() File {
@@ -167,6 +195,7 @@ func defaultFile() File {
 			Filled: "▰",
 			Empty:  "▱",
 		},
+		Block: Block{Enabled: true},
 		Template: TemplateOpts{
 			Unknown:        UnknownKeep,
 			ScanAllHeaders: true,
@@ -242,6 +271,16 @@ func (f *File) validate() error {
 	}
 	if f.Template.Unknown == "" {
 		f.Template.Unknown = UnknownKeep
+	}
+
+	f.Block.compiled = nil
+	for i, pattern := range f.Block.Patterns {
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("block.patterns[%d] is not a valid regexp: %v", i, err))
+			continue
+		}
+		f.Block.compiled = append(f.Block.compiled, re)
 	}
 
 	for name := range f.Vars {
