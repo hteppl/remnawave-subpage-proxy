@@ -3,7 +3,7 @@
 traffic:
   decimals: 1
   unlimited: "безлимит"
-  units: ["Б", "КБ", "МБ", "ГБ", "ТБ", "ПБ", "ЭБ"]
+  units: [ "Б", "КБ", "МБ", "ГБ", "ТБ", "ПБ", "ЭБ" ]
 
 datetime:
   layout: "02.01.2006"
@@ -25,7 +25,7 @@ headers:
     template: "Лимит трафика исчерпан — продлите на {SUPPORT}"
     encode: base64-prefixed
     when:
-      user_statuses: [LIMITED, EXPIRED]
+      user_statuses: [ LIMITED, EXPIRED ]
 
   - name: announce
     template: "{BRAND} · израсходовано {TRAFFIC_USED} из {TRAFFIC_LIMIT} · осталось {DAYS_LEFT} дн."

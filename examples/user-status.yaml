@@ -11,16 +11,16 @@ headers:
     template: "Traffic limit reached — renew at {SUPPORT}"
     encode: base64-prefixed
     when:
-      user_statuses: [LIMITED]
+      user_statuses: [ LIMITED ]
 
   - name: announce
     template: "Subscription expired — renew at {SUPPORT}"
     encode: base64-prefixed
     when:
-      user_statuses: [EXPIRED, DISABLED]
+      user_statuses: [ EXPIRED, DISABLED ]
 
   - name: announce
     template: "Hello {USERNAME} · {TRAFFIC_AVAILABLE} left"
     encode: base64-prefixed
     when:
-      user_statuses: [ACTIVE]
+      user_statuses: [ ACTIVE ]

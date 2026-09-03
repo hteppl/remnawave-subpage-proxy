@@ -13,6 +13,7 @@ cp examples/traffic-limit.yaml config.yaml
 | [`announce-in-config.yaml`](announce-in-config.yaml) | Build the announce in the proxy instead of the panel                               |
 | [`traffic-limit.yaml`](traffic-limit.yaml)           | Separate text for metered and unlimited plans                                      |
 | [`user-status.yaml`](user-status.yaml)               | Warn users whose subscription is limited, expired or disabled                      |
+| [`multiline-announce.yaml`](multiline-announce.yaml) | An announce spanning several lines, which requires base64 encoding                 |
 | [`per-client.yaml`](per-client.yaml)                 | Target specific clients by user agent or client-type path                          |
 | [`force-unlimited.yaml`](force-unlimited.yaml)       | Present every plan as unlimited while keeping the real quota internally            |
 | [`localized-ru.yaml`](localized-ru.yaml)             | Russian text, local units and timezone                                             |

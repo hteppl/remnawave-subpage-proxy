@@ -21,7 +21,7 @@ headers:
   - name: X-Plan-Summary
     template: "{TRAFFIC_USED} / {TRAFFIC_LIMIT}"
     when:
-      client_types: [clash, json, singbox]
+      client_types: [ clash, json, singbox ]
 
   - name: profile-web-page-url
     remove: true

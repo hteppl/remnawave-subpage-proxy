@@ -1,0 +1,40 @@
+# A multi-line announce.
+#
+# Newlines only survive when the value is base64-encoded. A raw newline cannot
+# appear in an HTTP header — it is the separator between headers — so Go replaces
+# it with a space on the way out. With `encode: base64-prefixed` the newline sits
+# inside the encoded payload instead, which is exactly why Happ understands the
+# `base64:` form. With `encode: none` the same template arrives as one line.
+#
+# YAML syntax:
+#
+#   |-        keeps the newlines and drops the trailing one
+#   |         keeps the newlines and leaves a blank line at the end
+#   "a\nb"    double quotes expand \n; single quotes do NOT
+#
+# Happ shows at most 200 characters, and max_length counts newlines as
+# characters like any other.
+
+vars:
+  BRAND: "MyProject"
+  SUPPORT: "@my_support_bot"
+
+headers:
+  - name: announce
+    encode: base64-prefixed
+    max_length: 200
+    when:
+      has_traffic_limit: true
+    template: |-
+      {BRAND}
+      {TRAFFIC_USED} of {TRAFFIC_LIMIT} · {TRAFFIC_USED_PERCENT}%
+      {PROGRESS_BAR}
+      Expires {EXPIRES_AT_DATE} · {SUPPORT}
+
+  - name: announce
+    encode: base64-prefixed
+    max_length: 200
+    template: |-
+      {BRAND}
+      Unlimited traffic
+      Expires {EXPIRES_AT_DATE} · {SUPPORT}
