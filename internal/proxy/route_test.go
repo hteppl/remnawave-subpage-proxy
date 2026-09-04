@@ -22,6 +22,11 @@ func TestParseRoute(t *testing.T) {
 		{name: "static assets", path: "/assets/index.js"},
 		{name: "files are not short uuids", path: "/favicon.ico"},
 		{name: "too deep", path: "/abc/json/extra"},
+		{name: "empty segments are ignored", path: "//aBcDeF123//clash", wantShortUUID: "aBcDeF123", wantClientType: "clash"},
+		{name: "prefix is matched exactly", path: "/SUB/aBcDeF123", prefix: "sub"},
+		{name: "prefix alone names no subscription", path: "/sub/", prefix: "sub"},
+		{name: "prefix of several segments", path: "/api/sub/aBcDeF123", prefix: "api/sub", wantShortUUID: "aBcDeF123"},
+		{name: "partial multi-segment prefix", path: "/api/aBcDeF123", prefix: "api/sub"},
 	}
 
 	for _, tc := range tests {

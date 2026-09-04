@@ -119,13 +119,18 @@ func run() error {
 		)
 	}
 
+	blocker, err := proxy.NewBlocker(cfg.File.Block, cfg.Upstream.SubPrefix)
+	if err != nil {
+		return err
+	}
+
 	handler := proxy.New(proxy.Options{
 		Upstream:   cfg.Upstream.URL,
 		SubPrefix:  cfg.Upstream.SubPrefix,
 		Timeout:    cfg.Upstream.Timeout,
 		Engine:     engine,
 		RealIP:     ipResolver,
-		Blocker:    proxy.NewBlocker(cfg.File.Block, cfg.Upstream.SubPrefix),
+		Blocker:    blocker,
 		SubCache:   subCache,
 		ForceHTTPS: forceHTTPS(),
 		Logger:     log,

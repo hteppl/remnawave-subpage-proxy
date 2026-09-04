@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -145,25 +146,28 @@ type Block struct {
 	Enabled bool `yaml:"enabled"`
 	// Patterns are extra Go regular expressions matched against the path.
 	Patterns []string `yaml:"patterns"`
-
-	compiled []*regexp.Regexp
 }
 
-// Compiled returns the parsed extra patterns.
-func (b Block) Compiled() []*regexp.Regexp { return b.compiled }
-
-// CompileBlock parses the extra patterns of a Block built outside the config
-// loader, which is what tests and callers assembling one by hand need.
-func CompileBlock(b Block) (Block, error) {
-	b.compiled = nil
+// CompileBlock parses the extra patterns of a Block. It is the only place a
+// pattern becomes a regexp, so the config loader and the proxy cannot disagree
+// about what one means. Every bad pattern is reported, not just the first.
+func CompileBlock(b Block) ([]*regexp.Regexp, error) {
+	var (
+		compiled []*regexp.Regexp
+		problems []error
+	)
 	for i, pattern := range b.Patterns {
 		re, err := regexp.Compile(pattern)
 		if err != nil {
-			return b, fmt.Errorf("block.patterns[%d]: %w", i, err)
+			problems = append(problems, fmt.Errorf("block.patterns[%d] is not a valid regexp: %w", i, err))
+			continue
 		}
-		b.compiled = append(b.compiled, re)
+		compiled = append(compiled, re)
 	}
-	return b, nil
+	if len(problems) > 0 {
+		return nil, errors.Join(problems...)
+	}
+	return compiled, nil
 }
 
 type File struct {
@@ -273,14 +277,10 @@ func (f *File) validate() error {
 		f.Template.Unknown = UnknownKeep
 	}
 
-	f.Block.compiled = nil
-	for i, pattern := range f.Block.Patterns {
-		re, err := regexp.Compile(pattern)
-		if err != nil {
-			problems = append(problems, fmt.Sprintf("block.patterns[%d] is not a valid regexp: %v", i, err))
-			continue
-		}
-		f.Block.compiled = append(f.Block.compiled, re)
+	// errors.Join separates one message per bad pattern with a newline; keep
+	// them as separate problems so an operator sees every one.
+	if _, err := CompileBlock(f.Block); err != nil {
+		problems = append(problems, strings.Split(err.Error(), "\n")...)
 	}
 
 	for name := range f.Vars {

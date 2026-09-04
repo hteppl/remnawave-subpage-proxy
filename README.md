@@ -412,12 +412,18 @@ block:
 Setting `enabled: false` turns the whole filter off, custom `patterns`
 included, and every probe is forwarded like any other request.
 
-Built in are any path segment starting with a dot — except `.well-known`, which
-carries ACME challenges — the file types a probe asks for (`.php`, `.sql`,
-`.bak`, `.ini`, `.key` and friends), and first segments such as `env`,
-`wp-admin` or `phpmyadmin`. Short UUIDs are 16-character nanoids, so none of
-these can collide with a real subscription, and the page's own assets are
-untouched.
+Built in are any path segment starting with a dot, the file types a probe asks
+for (`.php`, `.sql`, `.bak`, `.ini`, `.key` and friends) in any segment — so a
+trailing slash is no way around them — and first segments such as `env`,
+`wp-admin` or `phpmyadmin`, weighed after `CUSTOM_SUB_PREFIX` is removed. `..`
+is refused wherever it appears, including under `/assets`.
+
+Two dotted paths are exempt, and only those: `.well-known`, which carries ACME
+challenges and `security.txt`, in any spelling; and the page's own
+`/assets/.app-config-v2.json`. The panel mints short UUIDs as nanoids, so no
+built-in name collides with a real subscription in practice — but nothing
+enforces that shape, so a deployment that manages to hand out such a name has
+to turn the filter off.
 
 ### Health
 

@@ -263,3 +263,72 @@ func TestBinaryUnitsCanBeDisabled(t *testing.T) {
 		t.Error("binary_units: false was ignored")
 	}
 }
+
+// Blocking is on unless it is turned off, including for a deployment whose
+// config.yaml predates the setting or has no file at all.
+func TestBlockDefaultsToEnabled(t *testing.T) {
+	files := map[string]string{
+		"no file":       "",
+		"no block key":  "traffic:\n  decimals: 1\n",
+		"empty section": "block:\n",
+		"patterns only": "block:\n  patterns:\n    - \"(?i)/telescope\"\n",
+	}
+	for name, body := range files {
+		t.Run(name, func(t *testing.T) {
+			var (
+				cfg File
+				err error
+			)
+			if body == "" {
+				cfg, err = loadFile(filepath.Join(t.TempDir(), "absent.yaml"), false)
+			} else {
+				cfg, err = loadFile(writeConfig(t, body), true)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !cfg.Block.Enabled {
+				t.Error("block.enabled must stay true unless it is set to false")
+			}
+		})
+	}
+}
+
+func TestBlockCanBeDisabledInFile(t *testing.T) {
+	cfg, err := loadFile(writeConfig(t, "block:\n  enabled: false\n"), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Block.Enabled {
+		t.Error("block.enabled: false must be honoured")
+	}
+}
+
+// Every bad pattern is named, not just the first.
+func TestBlockRejectsInvalidPatterns(t *testing.T) {
+	_, err := loadFile(writeConfig(t, "block:\n  patterns:\n    - \"(\"\n    - \"[a-\"\n"), true)
+	if err == nil {
+		t.Fatal("an invalid regexp must fail the config")
+	}
+	for _, want := range []string{"block.patterns[0]", "block.patterns[1]", "not a valid regexp"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error should mention %s:\n%v", want, err)
+		}
+	}
+}
+
+func TestCompileBlock(t *testing.T) {
+	compiled, err := CompileBlock(Block{Patterns: []string{"(?i)/telescope", "^/x"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(compiled) != 2 {
+		t.Fatalf("compiled %d patterns, want 2", len(compiled))
+	}
+	if !compiled[0].MatchString("/Telescope") {
+		t.Error("the compiled pattern should match")
+	}
+	if _, err := CompileBlock(Block{Patterns: []string{"("}}); err == nil {
+		t.Error("an invalid pattern must be an error")
+	}
+}
