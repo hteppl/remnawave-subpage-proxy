@@ -109,11 +109,13 @@ func (b *Blocker) Blocked(path string) bool {
 		return true
 	}
 
-	if inAssets {
-		return false
-	}
-	for _, segment := range segments {
-		if strings.HasPrefix(segment, ".") && segment != wellKnown {
+	for i, segment := range named {
+		if !strings.HasPrefix(segment, ".") {
+			continue
+		}
+		// "." and ".." are traversal wherever they sit: the upstream resolves
+		// them, so neither exemption below may let one through.
+		if segment == "." || segment == ".." {
 			return true
 		}
 		if i == 0 && strings.EqualFold(segment, wellKnown) {
