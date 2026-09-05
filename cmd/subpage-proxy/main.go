@@ -69,7 +69,7 @@ func run() error {
 	)
 
 	for _, skipped := range cfg.Skipped {
-		log.Warn("unknown config key ignored; it may need a newer version", "detail", skipped)
+		log.Warn("unknown config section ignored; it may need a newer version", "detail", skipped)
 	}
 
 	ipResolver, err := realip.Parse(cfg.Upstream.TrustProxy)

@@ -243,13 +243,21 @@ func defaultFile() File {
 	}
 }
 
-// unknownField matches the yaml message for a key this binary does not know.
-// Such a key is skipped rather than fatal, so a config written for a newer
-// version still starts on an older image; every other decode error stands.
-var unknownField = regexp.MustCompile(`^line \d+: field \S+ not found in type `)
+// unknownSection matches the yaml message for an unrecognised key at the top
+// level of the file, such as a whole section a newer version added. Only those
+// are skipped, so an old image still starts on a new config; the name is
+// matched loosely because a YAML key may contain spaces, and the type is built
+// from File itself so a rename cannot quietly stop the match.
+//
+// Nested keys are deliberately excluded. Inside a section the proxy already
+// knows, an unrecognised key is far more likely a typo — "templat" for
+// "template" — and skipping it would leave a header rule silently doing the
+// wrong thing in production.
+var unknownSection = regexp.MustCompile(
+	`^line \d+: field .+ not found in type ` + regexp.QuoteMeta(fmt.Sprintf("%T", File{})) + `$`)
 
-// splitUnknownFields separates the "unknown key" complaints from the real
-// decode errors, returning the skipped keys and whatever remains fatal.
+// splitUnknownFields separates the skippable "unknown section" complaints from
+// the real decode errors, returning the skipped keys and what remains fatal.
 func splitUnknownFields(err error) ([]string, error) {
 	var typeErr *yaml.TypeError
 	if !errors.As(err, &typeErr) {
@@ -257,7 +265,7 @@ func splitUnknownFields(err error) ([]string, error) {
 	}
 	var skipped, fatal []string
 	for _, e := range typeErr.Errors {
-		if unknownField.MatchString(e) {
+		if unknownSection.MatchString(e) {
 			skipped = append(skipped, e)
 		} else {
 			fatal = append(fatal, e)
@@ -295,6 +303,12 @@ func loadFile(path string, explicit bool) (File, []string, error) {
 	}
 
 	if err := cfg.validate(); err != nil {
+		// Naming the skipped keys here too: the caller drops them on error,
+		// and one of them may be what the operator expected to take effect.
+		if len(skipped) > 0 {
+			return cfg, skipped, fmt.Errorf("config %s (ignored unknown keys: %s): %w",
+				path, strings.Join(skipped, "; "), err)
+		}
 		return cfg, skipped, fmt.Errorf("config %s: %w", path, err)
 	}
 	return cfg, skipped, nil

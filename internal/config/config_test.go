@@ -90,31 +90,62 @@ headers:
 	}
 }
 
-// A key this binary does not know must not stop it: a config written for a
-// newer version has to keep an older image running.
-func TestLoadFileSkipsUnknownKeys(t *testing.T) {
+// A whole section this binary does not know must not stop it: a config written
+// for a newer version has to keep an older image running.
+func TestLoadFileSkipsUnknownSections(t *testing.T) {
 	cfg, skipped, err := loadFile(writeConfig(t, `traffic:
   decimals: 3
-  nope: 1
 vars:
   BRAND: "MyProject"
 hosts_from_the_future:
   shuffle:
     - "(?i)premium"
+brand_new_toggle: true
 `), true)
 	if err != nil {
-		t.Fatalf("an unknown key must not be fatal: %v", err)
+		t.Fatalf("an unknown section must not be fatal: %v", err)
 	}
 	if cfg.Traffic.Decimals != 3 || cfg.Vars["BRAND"] != "MyProject" {
 		t.Errorf("known keys must still be applied: %+v", cfg.Traffic)
 	}
 	if len(skipped) != 2 {
-		t.Fatalf("skipped = %v, want both unknown keys", skipped)
+		t.Fatalf("skipped = %v, want both unknown sections", skipped)
 	}
-	for _, want := range []string{"nope", "hosts_from_the_future"} {
+	for _, want := range []string{"hosts_from_the_future", "brand_new_toggle"} {
 		if !strings.Contains(strings.Join(skipped, "\n"), want) {
 			t.Errorf("skipped should name %q: %v", want, skipped)
 		}
+	}
+}
+
+// A typo inside a section the proxy knows is a mistake, not a newer feature,
+// and must still stop startup rather than silently changing what a rule does.
+func TestLoadFileRejectsUnknownKeysInsideKnownSections(t *testing.T) {
+	for name, body := range map[string]string{
+		"in a header rule": "headers:\n  - name: announce\n    templat: hi\n",
+		"in a condition":   "headers:\n  - name: announce\n    when:\n      user_agentt: happ\n",
+		"in traffic":       "traffic:\n  decimalz: 3\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, _, err := loadFile(writeConfig(t, body), true)
+			if err == nil {
+				t.Fatal("a typo inside a known section must be rejected")
+			}
+		})
+	}
+}
+
+// A YAML key may contain spaces; the skip must cover those names too.
+func TestLoadFileSkipsUnknownSectionsWithSpaces(t *testing.T) {
+	cfg, skipped, err := loadFile(writeConfig(t, "traffic:\n  decimals: 3\nmy new key: 1\n"), true)
+	if err != nil {
+		t.Fatalf("a key with a space must not be fatal: %v", err)
+	}
+	if cfg.Traffic.Decimals != 3 {
+		t.Errorf("known keys must still be applied: %+v", cfg.Traffic)
+	}
+	if len(skipped) != 1 || !strings.Contains(skipped[0], "my new key") {
+		t.Errorf("skipped = %v, want the spaced key", skipped)
 	}
 }
 
