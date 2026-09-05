@@ -17,7 +17,7 @@ func writeConfig(t *testing.T, body string) string {
 }
 
 func TestLoadFileDefaults(t *testing.T) {
-	cfg, err := loadFile(filepath.Join(t.TempDir(), "absent.yaml"), false)
+	cfg, _, err := loadFile(filepath.Join(t.TempDir(), "absent.yaml"), false)
 	if err != nil {
 		t.Fatalf("a missing config at the default path must not be an error: %v", err)
 	}
@@ -33,7 +33,7 @@ func TestLoadFileDefaults(t *testing.T) {
 }
 
 func TestLoadFileMissingExplicitPathIsAnError(t *testing.T) {
-	if _, err := loadFile(filepath.Join(t.TempDir(), "absent.yaml"), true); err == nil {
+	if _, _, err := loadFile(filepath.Join(t.TempDir(), "absent.yaml"), true); err == nil {
 		t.Error("an explicitly configured CONFIG_PATH that does not exist must fail loudly")
 	}
 }
@@ -63,7 +63,7 @@ headers:
       user_agent: "Happ"
 `)
 
-	cfg, err := loadFile(path, true)
+	cfg, _, err := loadFile(path, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,9 +90,50 @@ headers:
 	}
 }
 
+// A key this binary does not know must not stop it: a config written for a
+// newer version has to keep an older image running.
+func TestLoadFileSkipsUnknownKeys(t *testing.T) {
+	cfg, skipped, err := loadFile(writeConfig(t, `traffic:
+  decimals: 3
+  nope: 1
+vars:
+  BRAND: "MyProject"
+hosts_from_the_future:
+  shuffle:
+    - "(?i)premium"
+`), true)
+	if err != nil {
+		t.Fatalf("an unknown key must not be fatal: %v", err)
+	}
+	if cfg.Traffic.Decimals != 3 || cfg.Vars["BRAND"] != "MyProject" {
+		t.Errorf("known keys must still be applied: %+v", cfg.Traffic)
+	}
+	if len(skipped) != 2 {
+		t.Fatalf("skipped = %v, want both unknown keys", skipped)
+	}
+	for _, want := range []string{"nope", "hosts_from_the_future"} {
+		if !strings.Contains(strings.Join(skipped, "\n"), want) {
+			t.Errorf("skipped should name %q: %v", want, skipped)
+		}
+	}
+}
+
+// Skipping unknown keys must not swallow a genuine mistake in a known one.
+func TestLoadFileStillRejectsBadValuesBesideUnknownKeys(t *testing.T) {
+	_, _, err := loadFile(writeConfig(t, "traffic:\n  decimals: nope\nfuture_key: 1\n"), true)
+	if err == nil {
+		t.Fatal("a bad value must stay fatal even next to an unknown key")
+	}
+	if strings.Contains(err.Error(), "future_key") {
+		t.Errorf("the unknown key must not be reported as the failure: %v", err)
+	}
+	if !strings.Contains(err.Error(), "cannot unmarshal") {
+		t.Errorf("error should point at the bad value: %v", err)
+	}
+}
+
 func TestLoadFileRejectsBadInput(t *testing.T) {
 	tests := map[string]string{
-		"unknown key":        "traffic:\n  decimals: 2\nnope: 1\n",
 		"bad encode":         "headers:\n  - name: announce\n    encode: rot13\n",
 		"bad timezone":       "datetime:\n  timezone: Mars/Olympus\n",
 		"missing name":       "headers:\n  - template: hi\n",
@@ -104,7 +145,7 @@ func TestLoadFileRejectsBadInput(t *testing.T) {
 
 	for name, body := range tests {
 		t.Run(name, func(t *testing.T) {
-			if _, err := loadFile(writeConfig(t, body), true); err == nil {
+			if _, _, err := loadFile(writeConfig(t, body), true); err == nil {
 				t.Errorf("expected %s to be rejected", name)
 			}
 		})
@@ -169,7 +210,7 @@ func TestLoadEnvRejectsBadURL(t *testing.T) {
 
 // Several rules may target one header, each scoped by its own conditions.
 func TestLoadFileAllowsSeveralRulesPerHeader(t *testing.T) {
-	cfg, err := loadFile(writeConfig(t, `
+	cfg, _, err := loadFile(writeConfig(t, `
 headers:
   - name: announce
     template: "limited"
@@ -207,7 +248,7 @@ func TestShippedConfigsAreValid(t *testing.T) {
 
 	for _, path := range paths {
 		t.Run(filepath.Base(path), func(t *testing.T) {
-			if _, err := loadFile(path, true); err != nil {
+			if _, _, err := loadFile(path, true); err != nil {
 				t.Errorf("%s does not load: %v", path, err)
 			}
 		})
@@ -217,7 +258,7 @@ func TestShippedConfigsAreValid(t *testing.T) {
 // An unconditional rule shadows every later rule for the same header, which is
 // silent dead config without this check.
 func TestLoadFileRejectsUnreachableRules(t *testing.T) {
-	_, err := loadFile(writeConfig(t, `
+	_, _, err := loadFile(writeConfig(t, `
 headers:
   - name: announce
     template: "always"
@@ -235,7 +276,7 @@ headers:
 }
 
 func TestLoadFileAllowsConditionalRulesThenFallback(t *testing.T) {
-	if _, err := loadFile(writeConfig(t, `
+	if _, _, err := loadFile(writeConfig(t, `
 headers:
   - name: announce
     template: "limited"
@@ -255,7 +296,7 @@ headers:
 // binary_units defaults to true, so an explicit false has to survive decoding
 // into an already-populated struct.
 func TestBinaryUnitsCanBeDisabled(t *testing.T) {
-	cfg, err := loadFile(writeConfig(t, "traffic:\n  binary_units: false\n"), true)
+	cfg, _, err := loadFile(writeConfig(t, "traffic:\n  binary_units: false\n"), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,9 +321,9 @@ func TestBlockDefaultsToEnabled(t *testing.T) {
 				err error
 			)
 			if body == "" {
-				cfg, err = loadFile(filepath.Join(t.TempDir(), "absent.yaml"), false)
+				cfg, _, err = loadFile(filepath.Join(t.TempDir(), "absent.yaml"), false)
 			} else {
-				cfg, err = loadFile(writeConfig(t, body), true)
+				cfg, _, err = loadFile(writeConfig(t, body), true)
 			}
 			if err != nil {
 				t.Fatal(err)
@@ -295,7 +336,7 @@ func TestBlockDefaultsToEnabled(t *testing.T) {
 }
 
 func TestBlockCanBeDisabledInFile(t *testing.T) {
-	cfg, err := loadFile(writeConfig(t, "block:\n  enabled: false\n"), true)
+	cfg, _, err := loadFile(writeConfig(t, "block:\n  enabled: false\n"), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,7 +347,7 @@ func TestBlockCanBeDisabledInFile(t *testing.T) {
 
 // Every bad pattern is named, not just the first.
 func TestBlockRejectsInvalidPatterns(t *testing.T) {
-	_, err := loadFile(writeConfig(t, "block:\n  patterns:\n    - \"(\"\n    - \"[a-\"\n"), true)
+	_, _, err := loadFile(writeConfig(t, "block:\n  patterns:\n    - \"(\"\n    - \"[a-\"\n"), true)
 	if err == nil {
 		t.Fatal("an invalid regexp must fail the config")
 	}
@@ -334,7 +375,7 @@ func TestCompileBlock(t *testing.T) {
 }
 
 func TestHostsShufflePatterns(t *testing.T) {
-	cfg, err := loadFile(writeConfig(t, `hosts:
+	cfg, _, err := loadFile(writeConfig(t, `hosts:
   shuffle:
     - "^RU \\d+"
     - "(?i)premium"
@@ -360,7 +401,7 @@ func TestHostsShufflePatterns(t *testing.T) {
 		t.Errorf("no patterns must compile to nothing: %v %v", compiled, err)
 	}
 
-	_, err = loadFile(writeConfig(t, "hosts:\n  shuffle:\n    - \"(\"\n    - \"\"\n"), true)
+	_, _, err = loadFile(writeConfig(t, "hosts:\n  shuffle:\n    - \"(\"\n    - \"\"\n"), true)
 	if err == nil {
 		t.Fatal("a bad pattern must fail the config")
 	}

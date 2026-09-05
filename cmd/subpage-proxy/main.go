@@ -68,6 +68,10 @@ func run() error {
 		"scan_all_headers", cfg.File.Template.ScanAllHeaders,
 	)
 
+	for _, skipped := range cfg.Skipped {
+		log.Warn("unknown config key ignored; it may need a newer version", "detail", skipped)
+	}
+
 	ipResolver, err := realip.Parse(cfg.Upstream.TrustProxy)
 	if err != nil {
 		return err

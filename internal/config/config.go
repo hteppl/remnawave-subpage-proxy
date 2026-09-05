@@ -71,6 +71,8 @@ type Config struct {
 	File     File
 
 	ConfigPath string
+	// Skipped holds config keys this binary does not know, already ignored.
+	Skipped []string
 }
 
 func Load() (*Config, error) {
@@ -165,11 +167,12 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
-	file, err := loadFile(configPath, explicit)
+	file, skipped, err := loadFile(configPath, explicit)
 	if err != nil {
 		return nil, err
 	}
 	cfg.File = file
+	cfg.Skipped = skipped
 
 	return cfg, nil
 }

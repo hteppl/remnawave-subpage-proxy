@@ -243,29 +243,61 @@ func defaultFile() File {
 	}
 }
 
-// loadFile treats a missing file at the default path as "run on defaults".
-func loadFile(path string, explicit bool) (File, error) {
+// unknownField matches the yaml message for a key this binary does not know.
+// Such a key is skipped rather than fatal, so a config written for a newer
+// version still starts on an older image; every other decode error stands.
+var unknownField = regexp.MustCompile(`^line \d+: field \S+ not found in type `)
+
+// splitUnknownFields separates the "unknown key" complaints from the real
+// decode errors, returning the skipped keys and whatever remains fatal.
+func splitUnknownFields(err error) ([]string, error) {
+	var typeErr *yaml.TypeError
+	if !errors.As(err, &typeErr) {
+		return nil, err
+	}
+	var skipped, fatal []string
+	for _, e := range typeErr.Errors {
+		if unknownField.MatchString(e) {
+			skipped = append(skipped, e)
+		} else {
+			fatal = append(fatal, e)
+		}
+	}
+	if len(fatal) == 0 {
+		return skipped, nil
+	}
+	return skipped, &yaml.TypeError{Errors: fatal}
+}
+
+// loadFile treats a missing file at the default path as "run on defaults". It
+// returns the keys it had to skip so the caller can log them.
+func loadFile(path string, explicit bool) (File, []string, error) {
 	cfg := defaultFile()
 
 	raw, err := os.ReadFile(path)
 	switch {
 	case err == nil:
 	case os.IsNotExist(err) && !explicit:
-		return cfg, nil
+		return cfg, nil, nil
 	default:
-		return cfg, fmt.Errorf("read config %s: %w", path, err)
+		return cfg, nil, fmt.Errorf("read config %s: %w", path, err)
 	}
 
+	var skipped []string
 	dec := yaml.NewDecoder(strings.NewReader(string(raw)))
 	dec.KnownFields(true)
 	if err := dec.Decode(&cfg); err != nil && err.Error() != "EOF" {
-		return cfg, fmt.Errorf("parse config %s: %w", path, err)
+		// The known keys are decoded even when others are rejected.
+		var fatal error
+		if skipped, fatal = splitUnknownFields(err); fatal != nil {
+			return cfg, skipped, fmt.Errorf("parse config %s: %w", path, fatal)
+		}
 	}
 
 	if err := cfg.validate(); err != nil {
-		return cfg, fmt.Errorf("config %s: %w", path, err)
+		return cfg, skipped, fmt.Errorf("config %s: %w", path, err)
 	}
-	return cfg, nil
+	return cfg, skipped, nil
 }
 
 func (f *File) validate() error {
