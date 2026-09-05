@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 
@@ -56,6 +57,38 @@ func TestPermutationKeepsGroupsInTheirSlots(t *testing.T) {
 	names := []string{"RU 1", "DE 1", "FI 1", "RU 2", "DE 2", "RU 3"}
 	if got, want := order(names, s.permutation(names)), "RU 3 DE 2 FI 1 RU 2 DE 1 RU 1"; got != want {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// A group's hosts land on exactly the positions that group already held, in
+// some other order; everything else keeps its slot.
+func TestGroupHostsStayOnTheirOwnPositions(t *testing.T) {
+	s := New([]*regexp.Regexp{regexp.MustCompile(`^RU`)})
+	names := []string{"RU 1", "RU 2", "DE 1", "RU 3", "FI 1"} // slots 0, 1, 3
+	seen := make(map[string]bool)
+	for i := 0; i < 500; i++ {
+		perm := s.permutation(names)
+		if perm == nil {
+			continue // the group came out in its original order
+		}
+		got := make([]string, len(names))
+		for slot, from := range perm {
+			got[slot] = names[from]
+		}
+		if got[2] != "DE 1" || got[4] != "FI 1" {
+			t.Fatalf("a host matching no group moved: %v", got)
+		}
+		group := []string{got[0], got[1], got[3]}
+		sorted := append([]string(nil), group...)
+		sort.Strings(sorted)
+		if strings.Join(sorted, ",") != "RU 1,RU 2,RU 3" {
+			t.Fatalf("a group member left the group's slots: %v", got)
+		}
+		seen[strings.Join(group, ",")] = true
+	}
+	// Three hosts give six orders; the identity one returns a nil permutation.
+	if len(seen) != 5 {
+		t.Errorf("saw %d orders out of 5: %v", len(seen), seen)
 	}
 }
 
