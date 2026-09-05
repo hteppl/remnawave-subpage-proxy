@@ -17,12 +17,12 @@ func (s *Shuffler) applyLinks(body []byte) ([]byte, bool) {
 	}
 
 	lines := bytes.Split(text, []byte("\n"))
-	hosts := make([]Host, len(lines))
+	names := make([]string, len(lines))
 	for i, line := range lines {
-		hosts[i] = linkHost(string(bytes.TrimRight(line, "\r")))
+		names[i] = linkName(string(bytes.TrimRight(line, "\r")))
 	}
 
-	perm := s.permutation(hosts)
+	perm := s.permutation(names)
 	if perm == nil {
 		return body, false
 	}
@@ -92,64 +92,48 @@ func isSchemeName(scheme []byte) bool {
 	return true
 }
 
-// linkHost extracts server and name from a share link.
-func linkHost(link string) Host {
+// linkName extracts the name shown to the user from a share link.
+func linkName(link string) string {
 	scheme, rest, found := strings.Cut(link, "://")
 	if !found {
-		return Host{}
+		return ""
 	}
-	switch strings.ToLower(scheme) {
-	case "vmess":
-		return vmessHost(rest)
-	case "ss":
-		// Legacy ss is one base64 blob with no @.
-		if authority, _, _ := strings.Cut(rest, "#"); strings.Contains(authority, "@") {
-			return urlHost(link)
-		}
-		return legacySSHost(rest)
-	default:
-		return urlHost(link)
+	if strings.EqualFold(scheme, "vmess") {
+		return vmessName(rest)
 	}
+	return fragmentName(link)
 }
 
-func urlHost(link string) Host {
+// fragmentName reads the #fragment every link but vmess carries.
+func fragmentName(link string) string {
 	u, err := url.Parse(link)
 	if err != nil {
-		return Host{}
+		return ""
 	}
-	return Host{Hostname: u.Hostname(), Name: u.Fragment}
+	return u.Fragment
 }
 
-func vmessHost(payload string) Host {
-	payload, _, _ = strings.Cut(payload, "#")
-	decoded, ok := decodeLoose(payload)
-	if !ok {
-		return Host{}
-	}
-	var node struct {
-		Add string `json:"add"`
-		PS  string `json:"ps"`
-	}
-	if err := json.Unmarshal(decoded, &node); err != nil {
-		return Host{}
-	}
-	return Host{Hostname: node.Add, Name: node.PS}
-}
-
-// legacySSHost reads ss://base64(method:pass@host:port)#name.
-func legacySSHost(payload string) Host {
+// vmessName reads ps from vmess://base64(json), falling back to a fragment.
+func vmessName(payload string) string {
 	payload, fragment, _ := strings.Cut(payload, "#")
 	decoded, ok := decodeLoose(payload)
 	if !ok {
-		return Host{}
+		return unescape(fragment)
 	}
-	host := urlHost("ss://" + string(decoded))
+	var node struct {
+		PS string `json:"ps"`
+	}
+	if err := json.Unmarshal(decoded, &node); err != nil || node.PS == "" {
+		return unescape(fragment)
+	}
+	return node.PS
+}
+
+func unescape(fragment string) string {
 	if name, err := url.PathUnescape(fragment); err == nil {
-		host.Name = name
-	} else {
-		host.Name = fragment
+		return name
 	}
-	return host
+	return fragment
 }
 
 // decodeLoose accepts any base64 alphabet, padded or not.

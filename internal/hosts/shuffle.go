@@ -4,26 +4,19 @@ package hosts
 import (
 	"bytes"
 	"math/rand/v2"
+	"regexp"
 	"sort"
-
-	"github.com/hteppl/remnawave-subpage-proxy/internal/config"
 )
-
-// Host is what a shuffle group is matched against.
-type Host struct {
-	Hostname string
-	Name     string
-}
 
 // Shuffler permutes the hosts of a subscription. Safe for concurrent use.
 type Shuffler struct {
-	groups []config.CompiledShuffleGroup
+	groups []*regexp.Regexp
 	// shuffle is rand.Shuffle; tests replace it.
 	shuffle func(n int, swap func(i, j int))
 }
 
 // New builds a Shuffler; no groups means it changes nothing.
-func New(groups []config.CompiledShuffleGroup) *Shuffler {
+func New(groups []*regexp.Regexp) *Shuffler {
 	return &Shuffler{groups: groups, shuffle: rand.Shuffle}
 }
 
@@ -54,13 +47,14 @@ func (s *Shuffler) Apply(body []byte) ([]byte, bool) {
 	}
 }
 
-// group returns the index of the first matching group, -1 for none.
-func (s *Shuffler) group(host Host) int {
-	if host.Hostname == "" && host.Name == "" {
+// group returns the index of the first group matching the name shown to the
+// user, -1 for none.
+func (s *Shuffler) group(name string) int {
+	if name == "" {
 		return -1
 	}
 	for i, g := range s.groups {
-		if g.Matches(host.Hostname, host.Name) {
+		if g.MatchString(name) {
 			return i
 		}
 	}
@@ -69,10 +63,10 @@ func (s *Shuffler) group(host Host) int {
 
 // permutation shuffles each group among its own slots. The result maps a
 // slot to the entry now filling it; nil means nothing moved.
-func (s *Shuffler) permutation(hosts []Host) []int {
+func (s *Shuffler) permutation(names []string) []int {
 	slots := make(map[int][]int)
-	for i, host := range hosts {
-		if g := s.group(host); g >= 0 {
+	for i, name := range names {
+		if g := s.group(name); g >= 0 {
 			slots[g] = append(slots[g], i)
 		}
 	}
@@ -80,7 +74,7 @@ func (s *Shuffler) permutation(hosts []Host) []int {
 		return nil
 	}
 
-	perm := make([]int, len(hosts))
+	perm := make([]int, len(names))
 	for i := range perm {
 		perm[i] = i
 	}

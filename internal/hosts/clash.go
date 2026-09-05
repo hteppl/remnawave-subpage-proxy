@@ -30,14 +30,12 @@ func (s *Shuffler) applyClash(body []byte) ([]byte, bool) {
 		return body, false
 	}
 
-	hosts := make([]Host, len(proxies.Content))
 	names := make([]string, len(proxies.Content))
 	for i, proxy := range proxies.Content {
 		names[i] = scalarValue(mappingValue(proxy, "name"))
-		hosts[i] = Host{Hostname: scalarValue(mappingValue(proxy, "server")), Name: names[i]}
 	}
 
-	perm := s.permutation(hosts)
+	perm := s.permutation(names)
 	if perm == nil {
 		return body, false
 	}
@@ -46,7 +44,7 @@ func (s *Shuffler) applyClash(body []byte) ([]byte, bool) {
 	newIndex := make(map[string]int)
 	for slot, from := range perm {
 		shuffled[slot] = proxies.Content[from]
-		if s.group(hosts[from]) >= 0 && names[from] != "" {
+		if s.group(names[from]) >= 0 {
 			newIndex[names[from]] = slot
 		}
 	}

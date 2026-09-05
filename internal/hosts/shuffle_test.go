@@ -20,27 +20,19 @@ func reversing(n int, swap func(i, j int)) {
 
 func testShuffler(t *testing.T, patterns ...string) *Shuffler {
 	t.Helper()
-	var groups []config.CompiledShuffleGroup
+	var groups []*regexp.Regexp
 	for _, p := range patterns {
-		groups = append(groups, config.CompiledShuffleGroup{Hostname: regexp.MustCompile(p)})
+		groups = append(groups, regexp.MustCompile(p))
 	}
 	s := New(groups)
 	s.shuffle = reversing
 	return s
 }
 
-func byHostname(names ...string) []Host {
-	hosts := make([]Host, len(names))
-	for i, n := range names {
-		hosts[i] = Host{Hostname: n}
-	}
-	return hosts
-}
-
-func order(hosts []Host, perm []int) string {
-	got := make([]string, len(hosts))
+func order(names []string, perm []int) string {
+	got := make([]string, len(names))
 	for slot, from := range perm {
-		got[slot] = hosts[from].Hostname
+		got[slot] = names[from]
 	}
 	return strings.Join(got, " ")
 }
@@ -60,58 +52,34 @@ func TestDisabledShufflerChangesNothing(t *testing.T) {
 }
 
 func TestPermutationKeepsGroupsInTheirSlots(t *testing.T) {
-	s := testShuffler(t, `^ru`, `^de`)
-	hosts := byHostname("ru1", "de1", "fi1", "ru2", "de2", "ru3")
-	if got, want := order(hosts, s.permutation(hosts)), "ru3 de2 fi1 ru2 de1 ru1"; got != want {
+	s := testShuffler(t, `^RU`, `^DE`)
+	names := []string{"RU 1", "DE 1", "FI 1", "RU 2", "DE 2", "RU 3"}
+	if got, want := order(names, s.permutation(names)), "RU 3 DE 2 FI 1 RU 2 DE 1 RU 1"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
 
 func TestPermutationIsNilWhenNothingMoves(t *testing.T) {
-	s := testShuffler(t, `^ru`)
-	if perm := s.permutation(byHostname("ru1", "de1", "de2")); perm != nil {
+	s := testShuffler(t, `^RU`)
+	if perm := s.permutation([]string{"RU 1", "DE 1", "DE 2"}); perm != nil {
 		t.Errorf("a single match must not move: %v", perm)
 	}
-	if perm := s.permutation(byHostname("", "fi1")); perm != nil {
+	if perm := s.permutation([]string{"", "FI 1"}); perm != nil {
 		t.Errorf("no match must not move: %v", perm)
 	}
 }
 
 func TestFirstPatternWins(t *testing.T) {
-	s := testShuffler(t, `1$`, `^ru`)
-	// ru1 matches both and belongs to the first, with de1.
-	hosts := byHostname("ru1", "ru2", "de1", "ru3")
-	if got, want := order(hosts, s.permutation(hosts)), "de1 ru3 ru1 ru2"; got != want {
+	s := testShuffler(t, `1$`, `^RU`)
+	// RU 1 matches both and belongs to the first, with DE 1.
+	names := []string{"RU 1", "RU 2", "DE 1", "RU 3"}
+	if got, want := order(names, s.permutation(names)), "DE 1 RU 3 RU 1 RU 2"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
 
-func TestGroupsMatchByNameToo(t *testing.T) {
-	s := New([]config.CompiledShuffleGroup{
-		{Name: regexp.MustCompile(`(?i)premium`)},
-		{Hostname: regexp.MustCompile(`^ru`), Name: regexp.MustCompile(`\d$`)},
-	})
-	s.shuffle = reversing
-
-	hosts := []Host{
-		{Hostname: "ru1.example.com", Name: "🇷🇺 Premium 1"}, // name group
-		{Hostname: "ru2.example.com", Name: "RU 2"},         // both patterns
-		{Hostname: "de.example.com", Name: "DE Premium"},    // name group
-		{Hostname: "ru3.example.com", Name: "RU 3"},         // both patterns
-		{Hostname: "ru4.example.com", Name: "RU four"},      // name does not end in a digit
-	}
-	got := make([]string, len(hosts))
-	for slot, from := range s.permutation(hosts) {
-		got[slot] = hosts[from].Name
-	}
-	if want := "DE Premium,RU 3,🇷🇺 Premium 1,RU 2,RU four"; strings.Join(got, ",") != want {
-		t.Errorf("got %q, want %q", strings.Join(got, ","), want)
-	}
-}
-
 func TestLinksCarryTheirNames(t *testing.T) {
-	s := New([]config.CompiledShuffleGroup{{Name: regexp.MustCompile(`^RU`)}})
-	s.shuffle = reversing
+	s := testShuffler(t, `^RU`)
 	body := "vless://u1@a.example.com:443#RU%201\n" +
 		"vless://u2@b.example.com:443#DE\n" +
 		"vless://u3@c.example.com:443#RU%202\n"
@@ -128,7 +96,7 @@ func TestLinksCarryTheirNames(t *testing.T) {
 }
 
 func TestPlainLinksAreShuffledLineByLine(t *testing.T) {
-	s := testShuffler(t, `^ru\d+\.example\.com$`)
+	s := testShuffler(t, `^RU \d+$`)
 	body := "vless://u1@ru1.example.com:443?type=tcp#RU 1\r\n" +
 		"trojan://pw@de1.example.com:443#DE\r\n" +
 		"vless://u2@ru2.example.com:443?type=tcp#RU 2\r\n" +
@@ -172,23 +140,24 @@ func TestBase64LinksAreReEncoded(t *testing.T) {
 	}
 }
 
-func TestLinkHost(t *testing.T) {
+func TestLinkName(t *testing.T) {
 	vmess := base64.StdEncoding.EncodeToString([]byte(`{"v":"2","ps":"VM node","add":"vm.example.com","port":"443"}`))
 	legacySS := base64.RawURLEncoding.EncodeToString([]byte("aes-256-gcm:secret@ss.example.com:8388"))
 	modernSS := "ss://" + base64.StdEncoding.EncodeToString([]byte("aes:pw")) + "@h.example.com:1#n"
-	cases := map[string]Host{
-		"vless://uuid@ru1.example.com:443?security=tls#RU%201": {Hostname: "ru1.example.com", Name: "RU 1"},
-		"trojan://pw@[2001:db8::1]:443#v6":                     {Hostname: "2001:db8::1", Name: "v6"},
-		modernSS:                                               {Hostname: "h.example.com", Name: "n"},
-		"ss://" + legacySS + "#legacy%20ss":                    {Hostname: "ss.example.com", Name: "legacy ss"},
-		"vmess://" + vmess:                                     {Hostname: "vm.example.com", Name: "VM node"},
-		"hysteria2://pw@hy.example.com:443/?sni=x#hy":          {Hostname: "hy.example.com", Name: "hy"},
-		"not a link":                                           {},
-		"":                                                     {},
+	cases := map[string]string{
+		"vless://uuid@ru1.example.com:443?security=tls#RU%201": "RU 1",
+		"trojan://pw@[2001:db8::1]:443#v6":                     "v6",
+		modernSS:                                               "n",
+		"ss://" + legacySS + "#legacy%20ss":                    "legacy ss",
+		"vmess://" + vmess:                                     "VM node",
+		"vmess://not-base64#VM%20fragment":                     "VM fragment",
+		"hysteria2://pw@hy.example.com:443/?sni=x#hy":          "hy",
+		"not a link":                                           "",
+		"":                                                     "",
 	}
 	for link, want := range cases {
-		if got := linkHost(link); got != want {
-			t.Errorf("linkHost(%q) = %+v, want %+v", link, got, want)
+		if got := linkName(link); got != want {
+			t.Errorf("linkName(%q) = %q, want %q", link, got, want)
 		}
 	}
 }
@@ -205,7 +174,7 @@ func TestOpaqueBase64IsLeftAlone(t *testing.T) {
 }
 
 func TestXrayArrayShufflesWholeConfigs(t *testing.T) {
-	s := testShuffler(t, `^ru`)
+	s := testShuffler(t, `^RU`)
 	body := `[
   {
     "remarks": "RU 1",
@@ -243,7 +212,7 @@ func TestXrayArrayShufflesWholeConfigs(t *testing.T) {
 }
 
 func TestSingboxReordersSelectorsToo(t *testing.T) {
-	s := testShuffler(t, `^ru`)
+	s := testShuffler(t, `^RU`)
 	body := `{
   "log": {"level": "info"},
   "outbounds": [
@@ -293,7 +262,7 @@ func TestSingboxReordersSelectorsToo(t *testing.T) {
 }
 
 func TestClashReordersGroupsToo(t *testing.T) {
-	s := testShuffler(t, `^ru`)
+	s := testShuffler(t, `^RU`)
 	body := `# generated
 mixed-port: 7890
 proxies:
@@ -376,13 +345,13 @@ func TestMalformedBodiesPassThrough(t *testing.T) {
 }
 
 func TestPermutationSkipsWhenNoHostMatches(t *testing.T) {
-	groups, err := config.CompileHosts(config.Hosts{Shuffle: []config.ShuffleGroup{{Hostname: `^eu\.`}}})
+	groups, err := config.CompileHosts(config.Hosts{Shuffle: []string{`^EU `}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := New(groups)
 	s.shuffle = func(int, func(int, int)) { t.Fatal("shuffle called with no matching host") }
-	if perm := s.permutation([]Host{{Hostname: "us.example"}, {Hostname: "asia.example"}}); perm != nil {
+	if perm := s.permutation([]string{"US 1", "ASIA 1"}); perm != nil {
 		t.Fatalf("permutation = %v, want nil", perm)
 	}
 }

@@ -1,12 +1,13 @@
-# Spread users across servers: each entry is a group shuffled among its own
-# positions on every request; hosts matching no group keep their place.
+# Spread users across servers: each entry is a regexp matched against the name
+# the client shows (link fragment, vmess ps, Xray remarks, sing-box tag, Clash
+# proxy name). Every group is shuffled among its own positions on each
+# request; hosts matching no group keep their place.
 
 hosts:
   shuffle:
-    # A bare string matches the server hostname.
-    - "^ru\\d+\\.example\\.com$"
+    - "(?i)premium"
     # A second, independent group.
-    - hostname: "^(de|nl|fi)\\d*\\.example\\.com$"
+    - "^🇩🇪 "
     # Everything: - ".*"
 
 headers:

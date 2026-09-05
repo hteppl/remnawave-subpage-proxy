@@ -88,13 +88,11 @@ block:
   # patterns:
   #   - "(?i)/telescope"
 
-# Shuffle subscription hosts. Each entry is a group (a hostname regexp, or a
-# mapping with hostname and/or name) shuffled among its own positions; hosts
+# Shuffle subscription hosts. Each entry is a regexp matched against the name
+# the client shows; every group is shuffled among its own positions, and hosts
 # matching none keep their place.
 hosts:
   shuffle: []
-  #   - "^ru\\d+\\.example\\.com$"
-  #   - name: "(?i)premium"
-  #   - hostname: "\\.example\\.com$"
-  #     name: "^🇩🇪"
+  #   - "(?i)premium"
+  #   - "^🇩🇪"
   #   - ".*"   # everything

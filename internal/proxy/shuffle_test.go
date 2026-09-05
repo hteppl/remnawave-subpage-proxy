@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hteppl/remnawave-subpage-proxy/internal/config"
 	"github.com/hteppl/remnawave-subpage-proxy/internal/hosts"
 	"github.com/hteppl/remnawave-subpage-proxy/internal/realip"
 )
@@ -27,9 +26,9 @@ func newShufflingProxy(t *testing.T, upstreamURL string, patterns ...string) *Pr
 	if err != nil {
 		t.Fatal(err)
 	}
-	var groups []config.CompiledShuffleGroup
+	var groups []*regexp.Regexp
 	for _, p := range patterns {
-		groups = append(groups, config.CompiledShuffleGroup{Hostname: regexp.MustCompile(p)})
+		groups = append(groups, regexp.MustCompile(p))
 	}
 	return New(Options{
 		Upstream: target,
@@ -54,7 +53,7 @@ func TestProxyShufflesSubscriptionHosts(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	front := httptest.NewServer(newShufflingProxy(t, upstream.URL, `^ru\d+\.example\.com$`))
+	front := httptest.NewServer(newShufflingProxy(t, upstream.URL, `^[ABC]$`))
 	defer front.Close()
 
 	seen := make(map[string]bool)
@@ -86,7 +85,7 @@ func TestProxyShufflesSubscriptionHosts(t *testing.T) {
 }
 
 func TestProxyLeavesPageAndCompressedBodiesAlone(t *testing.T) {
-	const page = "<html><body>vless://a@ru1.example.com\nvless://b@ru2.example.com</body></html>"
+	const page = "<html><body>vless://a@ru1.example.com#A\nvless://b@ru2.example.com#B</body></html>"
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Query().Get("kind") {
 		case "html":
@@ -95,7 +94,7 @@ func TestProxyLeavesPageAndCompressedBodiesAlone(t *testing.T) {
 		case "compressed":
 			w.Header().Set("Content-Type", "text/plain")
 			w.Header().Set("Content-Encoding", "br")
-			_, _ = w.Write([]byte("vless://a@ru1.example.com\nvless://b@ru2.example.com"))
+			_, _ = w.Write([]byte("vless://a@ru1.example.com#A\nvless://b@ru2.example.com#B"))
 		}
 	}))
 	defer upstream.Close()

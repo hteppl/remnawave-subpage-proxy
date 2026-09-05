@@ -11,12 +11,12 @@ func (s *Shuffler) applyXray(body []byte) ([]byte, bool) {
 		return body, false
 	}
 
-	hosts := make([]Host, len(items))
+	names := make([]string, len(items))
 	for i, item := range items {
-		hosts[i] = xrayHost(item)
+		names[i] = xrayName(item)
 	}
 
-	perm := s.permutation(hosts)
+	perm := s.permutation(names)
 	if perm == nil {
 		return body, false
 	}
@@ -28,38 +28,13 @@ func (s *Shuffler) applyXray(body []byte) ([]byte, bool) {
 	return indentLike(body, marshalArray(shuffled)), true
 }
 
-// xrayHost reads remarks and the first outbound's server.
-func xrayHost(config json.RawMessage) Host {
+// xrayName reads the remarks shown to the user.
+func xrayName(config json.RawMessage) string {
 	var parsed struct {
-		Remarks   string `json:"remarks"`
-		Outbounds []struct {
-			Settings struct {
-				Vnext []struct {
-					Address string `json:"address"`
-				} `json:"vnext"`
-				Servers []struct {
-					Address string `json:"address"`
-				} `json:"servers"`
-			} `json:"settings"`
-		} `json:"outbounds"`
+		Remarks string `json:"remarks"`
 	}
 	if err := json.Unmarshal(config, &parsed); err != nil {
-		return Host{}
+		return ""
 	}
-	host := Host{Name: parsed.Remarks}
-	for _, ob := range parsed.Outbounds {
-		for _, v := range ob.Settings.Vnext {
-			if v.Address != "" {
-				host.Hostname = v.Address
-				return host
-			}
-		}
-		for _, v := range ob.Settings.Servers {
-			if v.Address != "" {
-				host.Hostname = v.Address
-				return host
-			}
-		}
-	}
-	return host
+	return parsed.Remarks
 }

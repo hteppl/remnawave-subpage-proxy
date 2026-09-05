@@ -172,91 +172,31 @@ func CompileBlock(b Block) ([]*regexp.Regexp, error) {
 
 // Hosts controls shuffling of the servers inside a subscription body.
 type Hosts struct {
-	// Shuffle groups are shuffled independently among their own positions;
-	// a host matching none stays put, one matching several takes the first.
-	Shuffle []ShuffleGroup `yaml:"shuffle"`
+	// Shuffle is a list of regexps matched against the host name shown to
+	// the user (link fragment, vmess ps, remarks, sing-box tag, Clash proxy
+	// name). Each group is shuffled independently among its own positions;
+	// a host matching none stays put, one matching several joins the first.
+	Shuffle []string `yaml:"shuffle"`
 }
 
-// ShuffleGroup selects hosts by regexp. A bare YAML string is a hostname
-// pattern; a mapping may set hostname, name, or both (both must match).
-type ShuffleGroup struct {
-	// Hostname matches the server address.
-	Hostname string `yaml:"hostname"`
-	// Name matches the display name (link fragment, vmess ps, remarks, tag,
-	// Clash proxy name).
-	Name string `yaml:"name"`
-}
-
-func (g *ShuffleGroup) UnmarshalYAML(node *yaml.Node) error {
-	if node.Kind == yaml.ScalarNode {
-		var pattern string
-		if err := node.Decode(&pattern); err != nil {
-			return err
-		}
-		*g = ShuffleGroup{Hostname: pattern}
-		return nil
-	}
-	type plain ShuffleGroup
-	var decoded plain
-	if err := node.Decode(&decoded); err != nil {
-		return err
-	}
-	*g = ShuffleGroup(decoded)
-	return nil
-}
-
-// CompiledShuffleGroup is a ShuffleGroup ready to match; nil matches anything.
-type CompiledShuffleGroup struct {
-	Hostname *regexp.Regexp
-	Name     *regexp.Regexp
-}
-
-// Matches reports whether the host belongs to the group.
-func (g CompiledShuffleGroup) Matches(hostname, name string) bool {
-	if g.Hostname != nil && !g.Hostname.MatchString(hostname) {
-		return false
-	}
-	if g.Name != nil && !g.Name.MatchString(name) {
-		return false
-	}
-	return true
-}
-
-// CompileHosts parses the shuffle groups, reporting every bad pattern.
-func CompileHosts(h Hosts) ([]CompiledShuffleGroup, error) {
+// CompileHosts parses the shuffle patterns, reporting every bad one.
+func CompileHosts(h Hosts) ([]*regexp.Regexp, error) {
 	var (
-		compiled []CompiledShuffleGroup
+		compiled []*regexp.Regexp
 		problems []error
 	)
-	for i, group := range h.Shuffle {
-		var (
-			out CompiledShuffleGroup
-			bad bool
-		)
-		hostname, name := strings.TrimSpace(group.Hostname), strings.TrimSpace(group.Name)
-		if hostname == "" && name == "" {
-			problems = append(problems, fmt.Errorf("hosts.shuffle[%d] needs a hostname or a name pattern", i))
+	for i, pattern := range h.Shuffle {
+		pattern = strings.TrimSpace(pattern)
+		if pattern == "" {
+			problems = append(problems, fmt.Errorf("hosts.shuffle[%d] needs a name pattern", i))
 			continue
 		}
-		if hostname != "" {
-			re, err := regexp.Compile(hostname)
-			if err != nil {
-				problems = append(problems, fmt.Errorf("hosts.shuffle[%d].hostname is not a valid regexp: %w", i, err))
-				bad = true
-			}
-			out.Hostname = re
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			problems = append(problems, fmt.Errorf("hosts.shuffle[%d] is not a valid regexp: %w", i, err))
+			continue
 		}
-		if name != "" {
-			re, err := regexp.Compile(name)
-			if err != nil {
-				problems = append(problems, fmt.Errorf("hosts.shuffle[%d].name is not a valid regexp: %w", i, err))
-				bad = true
-			}
-			out.Name = re
-		}
-		if !bad {
-			compiled = append(compiled, out)
-		}
+		compiled = append(compiled, re)
 	}
 	if len(problems) > 0 {
 		return nil, errors.Join(problems...)

@@ -25,16 +25,17 @@ func (s *Shuffler) applySingbox(body []byte) ([]byte, bool) {
 		Outbounds []string `json:"outbounds"`
 	}
 	nodes := make([]node, len(outbounds))
-	hosts := make([]Host, len(outbounds))
+	names := make([]string, len(outbounds))
 	for i, raw := range outbounds {
 		_ = json.Unmarshal(raw, &nodes[i])
-		// Only outbounds with a server are hosts.
+		// A tag only names a host when the outbound has a server; selectors
+		// and direct/block carry tags too, and must not be shuffled.
 		if nodes[i].Server != "" {
-			hosts[i] = Host{Hostname: nodes[i].Server, Name: nodes[i].Tag}
+			names[i] = nodes[i].Tag
 		}
 	}
 
-	perm := s.permutation(hosts)
+	perm := s.permutation(names)
 	if perm == nil {
 		return body, false
 	}
@@ -43,8 +44,8 @@ func (s *Shuffler) applySingbox(body []byte) ([]byte, bool) {
 	newIndex := make(map[string]int)
 	for slot, from := range perm {
 		shuffled[slot] = outbounds[from]
-		if s.group(hosts[from]) >= 0 && nodes[from].Tag != "" {
-			newIndex[nodes[from].Tag] = slot
+		if s.group(names[from]) >= 0 {
+			newIndex[names[from]] = slot
 		}
 	}
 

@@ -36,7 +36,7 @@ Used 10.50 GB of 100.00 GB · 12 days left
 - **Conditional Rules** - Different text per client type, user agent or user status
 - **Fallback Cache** - Optionally replays the last good subscription while Remnawave is unreachable
 - **Force Unlimited** - Optionally reports every plan as unlimited, whatever quota the panel holds
-- **Host Shuffling** - Optionally shuffles the servers matching a hostname pattern, so users spread across them
+- **Host Shuffling** - Optionally shuffles the servers matching a name pattern, so users spread across them
 - **Transparent Proxy** - Header casing, the `X-Forwarded-*` chain and drop-on-error all preserved
 - **Docker Ready** - Multi-arch image, non-root, read-only, self-probing healthcheck
 
@@ -401,29 +401,21 @@ until the TTL expires. `SUBSCRIPTION_CACHE_TTL` should be selected accordingly.
 
 Clients tend to connect to the first host in a subscription, so a fixed order
 sends every user to the same server. `hosts.shuffle` names groups of hosts by a
-Go regular expression matched against the server name; on every request the
-hosts within a group are shuffled among the positions they already occupy,
-while a host matching no pattern keeps its place:
+Go regular expression matched against the name the client shows — the link
+fragment or vmess `ps`, Xray `remarks`, the sing-box `tag`, the Clash proxy
+`name`. On every request the hosts within a group are shuffled among the
+positions they already occupy, while a host matching no pattern keeps its
+place:
 
 ```yaml
 hosts:
   shuffle:
-    - "^ru\\d+\\.example\\.com$"   # ru1, ru2, ru3 ... trade places
-    - "^(de|nl)\\."                  # a second, independent group
+    - "(?i)premium"    # every Premium node trades places with the others
+    - "^🇩🇪 "           # a second, independent group
 ```
 
-A bare string matches the server hostname. To group by the name the client
-shows instead — the link fragment or vmess `ps`, Xray `remarks`, the sing-box
-`tag`, the Clash proxy `name` — write a mapping with `name`; giving both keys
-requires both to match:
-
-```yaml
-hosts:
-  shuffle:
-    - name: "(?i)premium"          # whatever server they sit on
-    - hostname: "\\.example\\.com$"
-      name: "^🇩🇪"                  # our own German hosts only
-```
+Server addresses are never matched, so hosts can be regrouped by renaming them
+in the panel, with no config change here.
 
 A host matching several groups belongs to the first. `".*"` shuffles every
 host. The list is empty by default, and nothing is buffered or rewritten until
