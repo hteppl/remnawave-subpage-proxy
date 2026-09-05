@@ -12,9 +12,7 @@
 
 English | [Русский](README.ru.md)
 
-Automatically fill variables in Remnawave (https://docs.rw) subscription params.
-
-An announce is defined in the Remnawave panel or in the proxy configuration:
+An announce is defined in the panel or in the proxy configuration:
 
 ```
 Used {TRAFFIC_USED} of {TRAFFIC_LIMIT} · {DAYS_LEFT} days left
@@ -29,9 +27,8 @@ Used 10.50 GB of 100.00 GB · 12 days left
 ## Features
 
 - **Template Variables** - Fill `{TRAFFIC_USED}`, `{TRAFFIC_AVAILABLE}`, `{DAYS_LEFT}` and more into subscription params
-- **Zero-Cost Placeholders** - Traffic and expiry come from the response headers, so the common case makes no extra API
-  call
-- **Panel-Backed Data** - Username, status and lifetime traffic from the Remnawave API, cached and de-duplicated
+- **Zero-Cost Placeholders** - Traffic and expiry come from the response headers, so the common case makes no API call;
+  username, status and lifetime traffic come from the panel, cached and de-duplicated
 - **Two Template Sources** - Write the announce in the panel's Custom Response Headers or in `config.yaml`
 - **Conditional Rules** - Different text per client type, user agent or user status
 - **Fallback Cache** - Optionally replays the last good subscription while Remnawave is unreachable
@@ -42,20 +39,17 @@ Used 10.50 GB of 100.00 GB · 12 days left
 
 ## Prerequisites
 
-Before you begin, ensure you have the following:
-
-- **Remnawave Panel** with a subscription page configured
-- **Remnawave API Token** - Generate in Remnawave Settings → API Tokens
-- **remnawave/subscription-page** - Bundled in the compose file, or already running
-- **Docker and Docker Compose**
+Docker and Docker Compose, a Remnawave panel with a subscription page, and an
+API token from Remnawave Settings → API Tokens. The subscription page is bundled
+in the compose file if it is not already running.
 
 ## How it works
 
 The proxy sits in front of the official
 [subscription page](https://github.com/remnawave/subscription-page) and rewrites
-response headers. The page itself is left unmodified: the web interface, browser
+response headers. The page is left unmodified: the web interface, browser
 detection, client-type templates, Marzban legacy links and subpage configurations
-continue to operate, and upstream updates remain applicable.
+keep working, and upstream updates still apply.
 
 ```
 client → caddy/nginx :443 → subpage-proxy :3020 → subscription-page :3010 → panel
@@ -63,14 +57,10 @@ client → caddy/nginx :443 → subpage-proxy :3020 → subscription-page :3010 
                                   └── GET /api/sub/{shortUuid}/info   (only when needed)
 ```
 
-Traffic and expiry placeholders are resolved from the `subscription-userinfo`
-header that accompanies every subscription response, so the common case requires
-**no additional API request**. The panel is queried only when a template
-references data the headers cannot supply, such as `{USERNAME}` or
-`{USER_STATUS}`; those lookups are cached and de-duplicated.
-
-If the panel is unreachable, unresolved placeholders retain their literal text
-rather than being cleared, and the subscription is delivered unmodified.
+Traffic and expiry placeholders come from the `subscription-userinfo` header on
+every subscription response, so the common case requires **no API request**. The
+panel is queried only for data the headers cannot supply, such as `{USERNAME}`
+or `{USER_STATUS}`; those lookups are cached and de-duplicated.
 
 ## Quick start
 
@@ -89,33 +79,30 @@ docker compose pull
 docker compose up -d
 ```
 
-`config.yaml` is optional. Without it, the proxy resolves placeholders defined
-in the panel's Custom Response Headers.
+`config.yaml` is optional: without it, the proxy resolves the placeholders
+defined in the panel's Custom Response Headers.
 
-To build from source instead of using the published image, apply the development
-override:
+To build from source instead of the published image, run `make dev`: it applies
+`docker-compose.dev.yml`, which builds the `:dev` tag locally, sets logging to
+`debug`/`text` and publishes the health port on 3021.
 
-```bash
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
-```
-
-The override builds the `:dev` tag locally, sets logging to `debug`/`text` and
-publishes the health port on 3021. The equivalent shorthand is `make dev`.
-
-Finally, redirect the reverse proxy to `127.0.0.1:3020` instead of
-`127.0.0.1:3010`:
+Finally, point the reverse proxy at the proxy rather than the subscription page.
+No port is published on the host — the containers live only on
+`remnawave-network` — so a reverse proxy on that network addresses them by name.
 
 ```caddy
 sub.example.com {
-    reverse_proxy 127.0.0.1:3020
+    reverse_proxy remnawave-subpage-proxy:3020
 }
 ```
 
+If the reverse proxy runs on the host instead, publish the port by adding
+`ports: ['127.0.0.1:3020:3020']` to the service in the compose file.
+
 ### Existing subscription page deployment
 
-Use `docker-compose.proxy-only.yml` and remove the `ports:` mapping from the
-subscription page's own compose file, so that it is reachable only through the
-proxy.
+Use `docker-compose.proxy-only.yml` and drop the `ports:` mapping from the
+subscription page's compose file, so it is reachable only through the proxy.
 
 ```bash
 cp .env.example .env
@@ -125,22 +112,20 @@ docker compose -f docker-compose.proxy-only.yml up -d
 
 ## Production notes
 
-A specific version should be pinned rather than tracking `latest`, by editing
-the image tag in the compose file. Both compose files run the container with a
-read-only filesystem, all capabilities dropped, `no-new-privileges` set, and the
-JSON log file capped at 3 × 10 MB.
+A specific version should be pinned rather than tracking `latest`. Both compose
+files run the container read-only, with all capabilities dropped,
+`no-new-privileges` set, and the JSON log file capped at 3 × 10 MB.
 
 `LOG_FORMAT=json` is recommended where logs are forwarded to an external system.
-`HTTP_SHUTDOWN_TIMEOUT` must remain below the compose `stop_grace_period`
-(15s and 20s respectively by default), so that in-flight subscription requests
-complete before the container is terminated.
+`HTTP_SHUTDOWN_TIMEOUT` must stay below the compose `stop_grace_period` (15s and
+20s by default), so in-flight requests finish before the container is stopped.
 
-The panel is verified once at startup. A failure is logged at error level but
-does not prevent operation, as subscriptions are served without it.
+The panel is verified once at startup; a failure is logged at error level but
+does not prevent operation.
 
 ## Configuring the announce
 
-The template may be defined in either of two locations, and both are applied.
+The template may be defined in either place, and both are applied.
 
 **From the panel** — Remnawave Settings → Subscription Settings → Custom
 Response Headers:
@@ -149,14 +134,12 @@ Response Headers:
 |------------|------------------------------------------|
 | `announce` | `Used {TRAFFIC_USED} of {TRAFFIC_LIMIT}` |
 
-The proxy resolves the placeholders in the outgoing response. No further
-configuration is required: `scan_all_headers` is enabled by default, so the
-behaviour applies to any header set by the panel, not only `announce`. Values
-that the panel base64-encodes are decoded, resolved and re-encoded in the same
-form.
+The proxy resolves the placeholders in the outgoing response; nothing else is
+required. `scan_all_headers` is on by default, so this applies to any header the
+panel sets, and base64 values are decoded, resolved and re-encoded in place.
 
-**From `config.yaml`** — for templates maintained in version control, or those
-requiring conditions:
+**From `config.yaml`** — for templates kept in version control, or needing
+conditions:
 
 ```yaml
 vars:
@@ -176,17 +159,15 @@ headers:
     max_length: 25
 ```
 
-All available options are documented in
-[`config.example.yaml`](config.example.yaml), and [`examples/`](examples/) holds
-ready-made configurations for common setups.
+Every option is documented in [`config.example.yaml`](config.example.yaml), and
+[`examples/`](examples/) holds ready-made configurations for common setups.
 
 ## Placeholders
 
 Syntax is `{NAME}`, with optional chained modifiers: `{NAME|upper}`,
-`{NAME|lower}`, `{NAME|trim}`, `{NAME|truncate:40}`, `{NAME|default:n/a}`.
-
-Placeholder names use `UPPER_SNAKE_CASE`. JSON and Clash payloads passing
-through the proxy are therefore never interpreted as templates.
+`{NAME|lower}`, `{NAME|trim}`, `{NAME|truncate:40}`, `{NAME|default:n/a}`. Names
+use `UPPER_SNAKE_CASE`, so JSON and Clash payloads passing through the proxy are
+never interpreted as templates.
 
 ### Resolved without a panel request
 
@@ -220,24 +201,20 @@ through the proxy are therefore never interpreted as templates.
 | `{SUBSCRIPTION_URL}`        | `https://example.com/sub/aBcDeF123`          |
 
 `{TRAFFIC_USED_IN_LIMIT}`, `{TRAFFIC_LIMIT_VALUE}` and `{TRAFFIC_UNIT}` render
-both sides of a quota in one shared unit, so `Used {TRAFFIC_USED} of
-{TRAFFIC_LIMIT}` — which gives `0 B of 20.0 GB` at zero usage — can be written as
-`Used {TRAFFIC_USED_IN_LIMIT} of {TRAFFIC_LIMIT}` for `0.0 of 20.0 GB`. The unit
-follows the limit, falling back to the used value on an unlimited plan.
+both sides of a quota in one shared unit: `{TRAFFIC_USED_IN_LIMIT} of
+{TRAFFIC_LIMIT}` gives `0.0 of 20.0 GB` where `{TRAFFIC_USED}` would give
+`0 B of 20.0 GB`. The unit follows the limit.
 
 `{ORIGINAL_VALUE}` holds the text the panel sent for the header the rule targets,
-decoded if it was base64. It lets a `template` wrap the panel's announce instead
-of discarding it, and any placeholders the panel itself used are resolved inside
-it. It is unresolved when the upstream sent no such header.
+decoded if it was base64, so a `template` can wrap the panel's announce rather
+than discard it; placeholders the panel used are resolved inside it.
 
-`{SUBSCRIPTION_URL}` is reconstructed from the incoming request — the forwarded
-scheme and host plus the short UUID — so it reflects the address used by the
-client and requires no panel request. The client-type segment is omitted:
-`/{shortUuid}/clash` yields the plain `/{shortUuid}` link.
+`{SUBSCRIPTION_URL}` is rebuilt from the incoming request, so it needs no panel
+request; the client-type segment is dropped, and `/{shortUuid}/clash` yields the
+plain `/{shortUuid}` link.
 
-On an unlimited plan, `{TRAFFIC_LIMIT}` and `{TRAFFIC_AVAILABLE}` render as `∞`
-(configurable); a subscription without an expiry date renders `{EXPIRES_AT}`
-identically.
+An unlimited plan renders `{TRAFFIC_LIMIT}` and `{TRAFFIC_AVAILABLE}` as `∞`
+(configurable), as does `{EXPIRES_AT}` without an expiry date.
 
 ### Requiring a panel request (cached)
 
@@ -253,7 +230,7 @@ In addition, any variable defined under `vars:` in `config.yaml`.
 
 ## Conditions
 
-Rules may be scoped so that different clients or users receive different text:
+Rules may be scoped so different clients or users receive different text:
 
 ```yaml
 headers:
@@ -264,31 +241,18 @@ headers:
     when:
       user_agent: "(?i)happ"
 
-  # Client-type paths /json and /clash only.
+  # Client-type paths /json and /clash only; `user_statuses` works the same way.
   - name: X-Plan-Summary
     template: "{TRAFFIC_USED} / {TRAFFIC_LIMIT}"
     when:
       client_types: [ json, clash ]
 
-  # Users who have exhausted their traffic limit.
-  - name: announce
-    template: "Traffic limit reached — renew at {SUPPORT}"
-    encode: base64-prefixed
-    when:
-      user_statuses: [ LIMITED, EXPIRED ]
-
-  # Plans with a finite quota.
+  # Plans with a finite quota; `false` matches unlimited plans.
   - name: announce
     template: "{TRAFFIC_USED} of {TRAFFIC_LIMIT} used"
     encode: base64-prefixed
     when:
       has_traffic_limit: true
-
-  # Unlimited plans.
-  - name: x-plan
-    template: "Unlimited traffic"
-    when:
-      has_traffic_limit: false
 
   # Default value, applied only if the panel did not send the header.
   - name: support-url
@@ -298,69 +262,64 @@ headers:
 ```
 
 `has_traffic_limit` distinguishes a finite quota from an unlimited plan, which
-Remnawave encodes as a zero total. It is read from the `subscription-userinfo`
-header and therefore normally costs no panel request; the panel is consulted
-only when that header carries no total. A rule is skipped when the quota cannot
-be determined at all.
+Remnawave encodes as a zero total. It comes from the `subscription-userinfo`
+header, so it normally costs no panel request, and a rule is skipped when the
+quota cannot be determined at all.
 
-`traffic.force_unlimited` does not affect this condition. It changes what the
-client is shown, while `has_traffic_limit` tests the quota actually configured in
-the panel, so the two can be combined: a limited plan can be presented as
-unlimited and still match `has_traffic_limit: true`.
-
-`user_statuses` always triggers a panel request, as the status is not present in
+`traffic.force_unlimited` does not affect it: that option changes what the client
+is shown, while `has_traffic_limit` tests the quota configured in the panel, so a
+plan presented as unlimited still matches `has_traffic_limit: true`.
+`user_statuses` always triggers a panel request, as the status is absent from
 the response headers.
 
 ## Configuration reference
 
 Infrastructure is configured through environment variables, templating through
-`config.yaml`. The table below lists every variable with the default applied when
-it is unset; the supplied [`.env.example`](.env.example) overrides several of
-them.
+`config.yaml`. Defaults below apply when a variable is unset;
+[`.env.example`](.env.example) overrides several.
 
-| Variable                              | Default       | Meaning                                                                 |
-|---------------------------------------|---------------|-------------------------------------------------------------------------|
-| `UPSTREAM_URL`                        | —             | Subscription page to proxy. **Required.**                               |
-| `REMNAWAVE_PANEL_URL`                 | —             | Panel base URL. Required unless `PANEL_ENABLED=false`.                  |
-| `REMNAWAVE_API_TOKEN`                 | —             | Panel API token. Required unless `PANEL_ENABLED=false`.                 |
-| `APP_HOST`                            | `0.0.0.0`     | Public bind address.                                                    |
-| `APP_PORT`                            | `3020`        | Public port.                                                            |
-| `HEALTH_HOST`                         | `0.0.0.0`     | Bind address for the health endpoints.                                  |
-| `HEALTH_PORT`                         | `3021`        | Health port. `0` disables both endpoints.                               |
-| `CONFIG_PATH`                         | `config.yaml` | Header rules file. A missing file is an error only when set explicitly. |
-| `CUSTOM_SUB_PREFIX`                   | —             | Path prefix. Must match the subscription page's own setting.            |
-| `TRUST_PROXY`                         | `1`           | `true`/`false`, a hop count, or a list of presets, IPs and CIDRs.       |
-| `UPSTREAM_FORCE_HTTPS`                | `false`       | Always send `X-Forwarded-Proto: https` upstream.                        |
-| `PANEL_ENABLED`                       | `true`        | `false` runs without panel credentials.                                 |
-| `PANEL_ALWAYS_FETCH`                  | `false`       | Look up every subscription, even when no placeholder needs it.          |
-| `PANEL_FORWARD_REAL_IP`               | `false`       | Send the end user's IP on info lookups.                                 |
-| `PANEL_TIMEOUT`                       | `10s`         | Timeout for one panel API call.                                         |
-| `CACHE_TTL`                           | `30s`         | How long a successful panel lookup is reused.                           |
-| `CACHE_NEGATIVE_TTL`                  | `10s`         | How long a "not found" is remembered.                                   |
-| `CACHE_MAX_ENTRIES`                   | `10000`       | Cap on cached lookups.                                                  |
-| `CADDY_AUTH_API_TOKEN`                | —             | Sent as `X-Api-Key` for a panel behind Caddy security.                  |
-| `CLOUDFLARE_ZERO_TRUST_CLIENT_ID`     | —             | `CF-Access-Client-Id` for a panel behind Cloudflare Zero Trust.         |
-| `CLOUDFLARE_ZERO_TRUST_CLIENT_SECRET` | —             | `CF-Access-Client-Secret` for the same.                                 |
-| `SUBSCRIPTION_CACHE_ENABLED`          | `false`       | Replay the last good response while Remnawave is down.                  |
-| `SUBSCRIPTION_CACHE_TTL`              | `1h`          | How long a stored response stays usable.                                |
-| `SUBSCRIPTION_CACHE_MAX_BYTES`        | `64MiB`       | Total memory budget for the fallback cache.                             |
-| `SUBSCRIPTION_CACHE_MAX_BODY`         | `1MiB`        | Largest single response worth storing.                                  |
-| `UPSTREAM_TIMEOUT`                    | `60s`         | Wait for the upstream's response headers.                               |
-| `HTTP_READ_TIMEOUT`                   | `30s`         | Reading the client request.                                             |
-| `HTTP_WRITE_TIMEOUT`                  | `90s`         | Writing the response.                                                   |
-| `HTTP_IDLE_TIMEOUT`                   | `120s`        | Keep-alive idle time.                                                   |
-| `HTTP_SHUTDOWN_TIMEOUT`               | `15s`         | Drain time on SIGTERM. Keep below the compose `stop_grace_period`.      |
-| `LOG_LEVEL`                           | `info`        | `debug` logs every header rewrite.                                      |
-| `LOG_FORMAT`                          | `text`        | `text` or `json`.                                                       |
+| Variable                              | Default       | Meaning                                                          |
+|---------------------------------------|---------------|------------------------------------------------------------------|
+| `UPSTREAM_URL`                        | —             | Subscription page to proxy. **Required.**                        |
+| `REMNAWAVE_PANEL_URL`                 | —             | Panel base URL, unless `PANEL_ENABLED=false`.                    |
+| `REMNAWAVE_API_TOKEN`                 | —             | Panel API token, unless `PANEL_ENABLED=false`.                   |
+| `APP_HOST`                            | `0.0.0.0`     | Public bind address.                                             |
+| `APP_PORT`                            | `3020`        | Public port.                                                     |
+| `HEALTH_HOST`                         | `0.0.0.0`     | Bind address for the health endpoints.                           |
+| `HEALTH_PORT`                         | `3021`        | Health port. `0` disables both endpoints.                        |
+| `CONFIG_PATH`                         | `config.yaml` | Header rules file. Missing is an error only when set explicitly. |
+| `CUSTOM_SUB_PREFIX`                   | —             | Path prefix. Must match the subscription page's setting.         |
+| `TRUST_PROXY`                         | `1`           | `true`/`false`, a hop count, or presets, IPs and CIDRs.          |
+| `UPSTREAM_FORCE_HTTPS`                | `false`       | Always send `X-Forwarded-Proto: https` upstream.                 |
+| `PANEL_ENABLED`                       | `true`        | `false` runs without panel credentials.                          |
+| `PANEL_ALWAYS_FETCH`                  | `false`       | Look up every subscription, even when nothing needs it.          |
+| `PANEL_FORWARD_REAL_IP`               | `false`       | Send the end user's IP on info lookups.                          |
+| `PANEL_TIMEOUT`                       | `10s`         | Timeout for one panel API call.                                  |
+| `CACHE_TTL`                           | `30s`         | How long a successful panel lookup is reused.                    |
+| `CACHE_NEGATIVE_TTL`                  | `10s`         | How long a "not found" is remembered.                            |
+| `CACHE_MAX_ENTRIES`                   | `10000`       | Cap on cached lookups.                                           |
+| `CADDY_AUTH_API_TOKEN`                | —             | `X-Api-Key` for a panel behind Caddy security.                   |
+| `CLOUDFLARE_ZERO_TRUST_CLIENT_ID`     | —             | `CF-Access-Client-Id` for Cloudflare Zero Trust.                 |
+| `CLOUDFLARE_ZERO_TRUST_CLIENT_SECRET` | —             | `CF-Access-Client-Secret` for the same.                          |
+| `SUBSCRIPTION_CACHE_ENABLED`          | `false`       | Replay the last good response while Remnawave is down.           |
+| `SUBSCRIPTION_CACHE_TTL`              | `1h`          | How long a stored response stays usable.                         |
+| `SUBSCRIPTION_CACHE_MAX_BYTES`        | `64MiB`       | Total memory budget for the fallback cache.                      |
+| `SUBSCRIPTION_CACHE_MAX_BODY`         | `1MiB`        | Largest single response worth storing.                           |
+| `UPSTREAM_TIMEOUT`                    | `60s`         | Wait for upstream response headers.                              |
+| `HTTP_READ_TIMEOUT`                   | `30s`         | Reading the client request.                                      |
+| `HTTP_WRITE_TIMEOUT`                  | `90s`         | Writing the response.                                            |
+| `HTTP_IDLE_TIMEOUT`                   | `120s`        | Keep-alive idle time.                                            |
+| `HTTP_SHUTDOWN_TIMEOUT`               | `15s`         | Drain on SIGTERM. Keep below `stop_grace_period`.                |
+| `LOG_LEVEL`                           | `info`        | `debug` logs every header rewrite.                               |
+| `LOG_FORMAT`                          | `text`        | `text` or `json`.                                                |
 
-A duration without a unit is interpreted as seconds, so `CACHE_TTL=45` and
-`CACHE_TTL=45s` are equivalent. A byte size accepts `1MiB`, `512KB` or a plain
-number.
+A duration without a unit means seconds, so `CACHE_TTL=45` and `CACHE_TTL=45s`
+are equivalent. A byte size accepts `1MiB`, `512KB` or a plain number.
 
 ### Forcing an unlimited plan
 
 `traffic.force_unlimited` hides the quota from the client's built-in traffic
-display, regardless of what the panel has configured:
+display, whatever the panel has configured:
 
 ```yaml
 traffic:
@@ -368,78 +327,67 @@ traffic:
 ```
 
 The `subscription-userinfo` header is sent with `total=0`, the standard encoding
-for an unlimited plan and the value that determines the quota display in client
-applications.
-
-Only that header is rewritten. Placeholders and conditions keep reporting the
+for an unlimited plan and the value client apps read for their quota display.
+Only that header is rewritten: placeholders and conditions keep reporting the
 real quota, so `{TRAFFIC_LIMIT}` still yields `100.00 GB` and
-`has_traffic_limit: true` still matches. The option controls the one thing a
-template cannot: the app's own traffic readout.
+`has_traffic_limit: true` still matches. It controls the one thing a template
+cannot — the app's own traffic readout.
 
 ### Subscription fallback cache
 
 Disabled by default; enabled with `SUBSCRIPTION_CACHE_ENABLED=true`. The proxy
-then retains the last successful subscription response per client and replays it
-while Remnawave is unreachable, allowing existing users to retain a working
-configuration throughout a panel outage or a page restart.
+then keeps the last successful subscription response per client and replays it
+while Remnawave is unreachable, so existing users keep a working configuration
+through a panel outage or a page restart.
 
-This is a fallback rather than a read-through cache: every request is sent to
-the upstream first, and the stored copy is used only if that request fails — a
-dropped connection, a timeout, or a 5xx response. No stale data is served while
-Remnawave is operating normally.
+This is a fallback, not a read-through cache: every request goes to the upstream
+first, and the stored copy is used only if that fails — a dropped connection, a
+timeout, or a 5xx response. Entries are keyed by short UUID, client type,
+`User-Agent` and `Accept-Encoding`, since Remnawave varies the payload by
+client; only subscription payloads are stored, never the web page.
 
-Entries are keyed by short UUID, client type, `User-Agent` and `Accept-Encoding`,
-as Remnawave varies the payload by client. The stored object is the completed
-response, so a replayed announce carries the values held at the time of caching.
-The web page is never stored, only subscription payloads.
-
-Two consequences should be considered: traffic counters in a replayed response
-are as old as the cache entry, and a user revoked during an outage retains access
-until the TTL expires. `SUBSCRIPTION_CACHE_TTL` should be selected accordingly.
+Two consequences: traffic counters in a replay are as old as the cache entry,
+and a user revoked during an outage keeps access until `SUBSCRIPTION_CACHE_TTL`
+expires.
 
 ### Shuffling hosts
 
 Clients tend to connect to the first host in a subscription, so a fixed order
-sends every user to the same server. `hosts.shuffle` names groups of hosts by a
-Go regular expression matched against the name the client shows — the link
-fragment or vmess `ps`, Xray `remarks`, the sing-box `tag`, the Clash proxy
-`name`. On every request the hosts within a group are shuffled among the
-positions they already occupy, while a host matching no pattern keeps its
-place:
+sends every user to the same server. `hosts.shuffle` groups hosts by a Go regexp
+matched against the name the client shows — the link fragment or vmess `ps`,
+Xray `remarks`, the sing-box `tag`, the Clash proxy `name`. On each request a
+group's hosts are shuffled among the positions they already hold, while a host
+matching no pattern keeps its place:
 
 ```yaml
 hosts:
   shuffle:
-    - "(?i)premium"    # every Premium node trades places with the others
+    - "(?i)premium"    # every Premium node is shuffled with the others
     - "^🇩🇪 "           # a second, independent group
 ```
 
 Server addresses are never matched, so hosts can be regrouped by renaming them
-in the panel, with no config change here.
+in the panel. A host matching several groups belongs to the first, `".*"`
+shuffles every host, and the list is empty by default — nothing is buffered or
+rewritten until a group is set.
 
-A host matching several groups belongs to the first. `".*"` shuffles every
-host. The list is empty by default, and nothing is buffered or rewritten until
-a group is set.
+The format is detected from the body, whatever path or user agent produced it.
+A link list, base64-wrapped or not, moves line by line; `/json` and
+`/v2ray-json` move whole Xray configs; in sing-box the node outbounds are
+shuffled and every selector or urltest listing them by tag follows; in Clash,
+Mihomo and Stash YAML the `proxies` list is shuffled and the proxy groups
+follow. `DIRECT`, `REJECT` and group names keep their positions, and the web
+page is never modified.
 
-The format is detected from the body, so it does not matter which client-type
-path or user agent produced it. The plain link list, base64-wrapped or not, is
-moved line by line; `/json` and `/v2ray-json` move whole Xray configs; in a
-sing-box config the node outbounds are shuffled and every selector or urltest
-that lists them by tag is reordered to match; in Clash, Mihomo and Stash YAML
-the `proxies` list is shuffled and the names in every proxy group follow.
-`DIRECT`, `REJECT` and group names stay where they are. The web page is never
-touched.
-
-The proxy asks the upstream for an uncompressed body on subscription paths
-when shuffling is enabled; a body that still arrives compressed, or one larger
-than 8 MiB, is passed through unchanged. A replay from the fallback cache is
-shuffled as well.
+With shuffling enabled the proxy asks the upstream for an uncompressed body on
+subscription paths; one that still arrives compressed, or is larger than 8 MiB,
+passes through unchanged. A replay from the fallback cache is shuffled as well.
 
 ### Blocking scanner probes
 
-Automated sweeps for `/.env`, `/.git/HEAD`, `/config/.env` and the like are
-refused by the proxy itself, so they never reach the subscription page or the
-panel. They get a bare `404` and are logged only at `debug` level:
+Automated sweeps for `/.env`, `/.git/HEAD`, `/config/.env` and similar paths are
+refused by the proxy, so they never reach the subscription page or the panel.
+They receive a bare `404`, logged only at `debug` level:
 
 ```yaml
 block:
@@ -448,51 +396,43 @@ block:
     - "(?i)/telescope"
 ```
 
-Setting `enabled: false` turns the whole filter off, custom `patterns`
-included, and every probe is forwarded like any other request.
+`enabled: false` turns the whole filter off, custom `patterns` included.
 
 Built in are any path segment starting with a dot, the file types a probe asks
-for (`.php`, `.sql`, `.bak`, `.ini`, `.key` and friends) in any segment — so a
-trailing slash is no way around them — and first segments such as `env`,
+for (`.php`, `.sql`, `.bak`, `.ini`, `.key` and similar) in any segment — a
+trailing slash does not bypass them — and first segments such as `env`,
 `wp-admin` or `phpmyadmin`, weighed after `CUSTOM_SUB_PREFIX` is removed. `..`
 is refused wherever it appears, including under `/assets`.
 
-Two dotted paths are exempt, and only those: `.well-known`, which carries ACME
-challenges and `security.txt`, in any spelling; and the page's own
-`/assets/.app-config-v2.json`. The panel mints short UUIDs as nanoids, so no
-built-in name collides with a real subscription in practice — but nothing
-enforces that shape, so a deployment that manages to hand out such a name has
-to turn the filter off.
+Exempt are `.well-known`, which carries ACME challenges and `security.txt`, in
+any spelling, and the page's own `/assets/.app-config-v2.json` — those two only. Short UUIDs are
+nanoids, so no built-in name collides with a real subscription in practice, but
+nothing enforces that shape.
 
 ### Health
 
-`/healthz` on `HEALTH_PORT` reports liveness; `/readyz` additionally verifies
-that the upstream is reachable. Both are served on a separate port so that no
-request path can shadow a subscription short UUID. The container `HEALTHCHECK`
-invokes the binary against its own endpoint, so the image requires neither a
-shell nor `curl`.
+`/healthz` on `HEALTH_PORT` reports liveness, `/readyz` also verifies that the
+upstream is reachable. Both sit on a separate port so no request path can shadow
+a short UUID, and the container `HEALTHCHECK` invokes the binary against its own
+endpoint, so the image needs neither a shell nor `curl`.
 
 ## Notes on behaviour
 
-- **Header casing is preserved.** Go canonicalises header names when it parses a
-  response (`announce` → `Announce`). The proxy restores the lowercase spelling
-  the subscription page uses before writing the response, so that clients receive
-  the same header spelling as before the proxy was introduced.
-- **Base64 values are handled safely.** A value is only decoded and re-encoded
-  when decoding reveals a placeholder. An opaque base64 payload, or plain text
-  that merely happens to be valid base64, is passed through byte for byte.
-- **Requests the upstream refuses are dropped, not answered.** The subscription
-  page destroys the socket for invalid requests, providing no information to
-  scanners; the proxy mirrors this and logs the reason at `warn` level.
-- **`X-Forwarded-*` is chained, not overwritten.** The inbound chain is kept and
-  this hop is appended, so the subscription page resolves the real client with
-  its own `TRUST_PROXY=1`.
+- **Header casing is preserved.** Go canonicalises header names on parsing
+  (`announce` → `Announce`); the proxy restores the spelling the subscription
+  page uses, so clients see the same header as before.
+- **Base64 values are handled safely.** A value is decoded and re-encoded only
+  when decoding reveals a placeholder; anything else passes through byte for
+  byte.
+- **`X-Forwarded-*` is chained, not overwritten,** so the subscription page
+  resolves the real client with its own `TRUST_PROXY=1`. Requests the upstream
+  refuses are dropped rather than answered, as the page itself does.
 - **The panel is not on the critical path.** If it is unavailable, subscriptions
   are still served; placeholders that require it retain their literal text.
 - **Marzban legacy links work partially.** Their path segment is an opaque token
-  rather than a short UUID, so the proxy cannot look the user up in the panel.
-  Traffic and expiry placeholders still resolve, as they originate from the
-  response header; `{USERNAME}` and other panel-backed placeholders do not.
+  rather than a short UUID, so the user cannot be looked up: traffic and expiry
+  still resolve from the response header, `{USERNAME}` and other panel-backed
+  placeholders do not.
 
 ## License
 

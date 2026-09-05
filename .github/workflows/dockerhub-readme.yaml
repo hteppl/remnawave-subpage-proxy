@@ -23,5 +23,5 @@ jobs:
         with:
           destination_container_repo: hteppl/remnawave-subpage-proxy
           provider: dockerhub
-          short_description: "Automatically fill variables in Remnawave (https://docs.rw) subscription params."
+          short_description: "Live templates, conditions and host shuffling for Remnawave (https://docs.rw) subscriptions."
           readme_file: "README.md"

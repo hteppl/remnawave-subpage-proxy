@@ -8,8 +8,8 @@ services:
       - .env
     volumes:
       - ./config.yaml:/app/config.yaml:ro
-    ports:
-      - '127.0.0.1:3020:3020'
+    expose:
+      - '3020'
     depends_on:
       - remnawave-subscription-page
     read_only: true
