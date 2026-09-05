@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hteppl/remnawave-subpage-proxy/internal/hosts"
 	"github.com/hteppl/remnawave-subpage-proxy/internal/realip"
 	"github.com/hteppl/remnawave-subpage-proxy/internal/rewrite"
 	"github.com/hteppl/remnawave-subpage-proxy/internal/subcache"
@@ -39,6 +40,8 @@ type Options struct {
 	Blocker   *Blocker
 	// SubCache replays the last good response while the upstream is down.
 	SubCache *subcache.Cache
+	// Shuffler shuffles the hosts inside a subscription body.
+	Shuffler *hosts.Shuffler
 	// ForceHTTPS claims TLS termination to an upstream that demands it.
 	ForceHTTPS bool
 	Logger     *slog.Logger
@@ -50,9 +53,13 @@ type Proxy struct {
 	subPrefix  string
 	realIP     *realip.Resolver
 	subCache   *subcache.Cache
+	shuffler   *hosts.Shuffler
 	forceHTTPS bool
 	log        *slog.Logger
 }
+
+// maxShuffleBody caps what is buffered to shuffle; larger bodies stream through.
+const maxShuffleBody = 8 << 20
 
 func New(o Options) *Proxy {
 	log := o.Logger
@@ -65,6 +72,7 @@ func New(o Options) *Proxy {
 		subPrefix:  o.SubPrefix,
 		realIP:     o.RealIP,
 		subCache:   o.SubCache,
+		shuffler:   o.Shuffler,
 		forceHTTPS: o.ForceHTTPS,
 		log:        log,
 	}
@@ -82,6 +90,8 @@ func New(o Options) *Proxy {
 		ExpectContinueTimeout: 1 * time.Second,
 		ResponseHeaderTimeout: o.Timeout,
 		ForceAttemptHTTP2:     true,
+		// Stops the transport from re-adding gzip after the shuffler strips it.
+		DisableCompression: true,
 	}
 
 	p.rp = &httputil.ReverseProxy{
@@ -91,6 +101,10 @@ func New(o Options) *Proxy {
 			// Keep the public hostname in any URL the page builds.
 			r.Out.Host = r.In.Host
 			forwardHeaders(r, o.ForceHTTPS)
+			// A body to be rewritten must arrive uncompressed.
+			if info, ok := r.In.Context().Value(contextKey{}).(*requestInfo); ok && p.shuffles(info) {
+				r.Out.Header.Del("Accept-Encoding")
+			}
 		},
 		ModifyResponse: func(resp *http.Response) error {
 			info, ok := resp.Request.Context().Value(contextKey{}).(*requestInfo)
@@ -99,6 +113,7 @@ func New(o Options) *Proxy {
 			}
 
 			if p.replaceWithCache(resp, info) {
+				p.shuffle(resp, info)
 				return nil
 			}
 
@@ -112,6 +127,7 @@ func New(o Options) *Proxy {
 				})
 			}
 
+			p.shuffle(resp, info)
 			p.store(resp, info)
 			return nil
 		},
@@ -203,10 +219,55 @@ func (p *Proxy) writeFromCache(w http.ResponseWriter, info *requestInfo) bool {
 	for key, values := range entry.Header {
 		header[key] = append([]string(nil), values...)
 	}
-	header.Set("Content-Length", strconv.Itoa(len(entry.Body)))
+	body := entry.Body
+	if p.shuffles(info) && !isCompressed(header) {
+		body, _ = p.shuffler.Apply(body)
+	}
+	header.Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(entry.Status)
-	_, _ = w.Write(entry.Body)
+	_, _ = w.Write(body)
 	return true
+}
+
+// shuffles reports whether this request's body is up for shuffling.
+func (p *Proxy) shuffles(info *requestInfo) bool {
+	return p.shuffler.Enabled() && info.route.ShortUUID != ""
+}
+
+// shuffle rewrites a subscription body; HTML, compressed or oversized bodies
+// pass through.
+func (p *Proxy) shuffle(resp *http.Response, info *requestInfo) {
+	if !p.shuffles(info) || resp.StatusCode != http.StatusOK || isHTML(resp.Header) {
+		return
+	}
+	if isCompressed(resp.Header) {
+		p.log.Debug("subscription arrived compressed, hosts left in place", "short_uuid", info.route.ShortUUID)
+		return
+	}
+
+	body, ok := drainBody(resp, maxShuffleBody)
+	if !ok {
+		return
+	}
+	shuffled, changed := p.shuffler.Apply(body)
+	if !changed {
+		return
+	}
+
+	resp.Body = io.NopCloser(bytes.NewReader(shuffled))
+	resp.ContentLength = int64(len(shuffled))
+	resp.Header.Set("Content-Length", strconv.Itoa(len(shuffled)))
+	resp.TransferEncoding = nil
+	p.log.Debug("shuffled subscription hosts", "short_uuid", info.route.ShortUUID, "client_type", info.route.ClientType)
+}
+
+func isHTML(h http.Header) bool {
+	return strings.Contains(strings.ToLower(h.Get("Content-Type")), "text/html")
+}
+
+func isCompressed(h http.Header) bool {
+	enc := strings.ToLower(strings.TrimSpace(h.Get("Content-Encoding")))
+	return enc != "" && enc != "identity"
 }
 
 // replaceWithCache covers a reachable page with a dead panel behind it.
@@ -240,7 +301,7 @@ func (p *Proxy) store(resp *http.Response, info *requestInfo) {
 	if p.subCache == nil || info.cacheKey == "" || resp.StatusCode != http.StatusOK {
 		return
 	}
-	if strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/html") {
+	if isHTML(resp.Header) {
 		return
 	}
 

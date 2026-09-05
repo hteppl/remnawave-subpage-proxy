@@ -17,6 +17,7 @@ import (
 	_ "time/tzdata"
 
 	"github.com/hteppl/remnawave-subpage-proxy/internal/config"
+	"github.com/hteppl/remnawave-subpage-proxy/internal/hosts"
 	"github.com/hteppl/remnawave-subpage-proxy/internal/logging"
 	"github.com/hteppl/remnawave-subpage-proxy/internal/panel"
 	"github.com/hteppl/remnawave-subpage-proxy/internal/proxy"
@@ -124,6 +125,15 @@ func run() error {
 		return err
 	}
 
+	shuffleGroups, err := config.CompileHosts(cfg.File.Hosts)
+	if err != nil {
+		return err
+	}
+	shuffler := hosts.New(shuffleGroups)
+	if shuffler.Enabled() {
+		log.Info("host shuffling enabled", "groups", len(shuffleGroups))
+	}
+
 	handler := proxy.New(proxy.Options{
 		Upstream:   cfg.Upstream.URL,
 		SubPrefix:  cfg.Upstream.SubPrefix,
@@ -132,6 +142,7 @@ func run() error {
 		RealIP:     ipResolver,
 		Blocker:    blocker,
 		SubCache:   subCache,
+		Shuffler:   shuffler,
 		ForceHTTPS: forceHTTPS(),
 		Logger:     log,
 	})

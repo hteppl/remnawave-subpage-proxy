@@ -332,3 +332,50 @@ func TestCompileBlock(t *testing.T) {
 		t.Error("an invalid pattern must be an error")
 	}
 }
+
+func TestHostsShufflePatterns(t *testing.T) {
+	cfg, err := loadFile(writeConfig(t, `hosts:
+  shuffle:
+    - "^ru\\d+\\."
+    - name: "(?i)premium"
+    - hostname: "^de"
+      name: "\\d$"
+`), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileHosts(cfg.Hosts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(compiled) != 3 {
+		t.Fatalf("compiled %d groups, want 3", len(compiled))
+	}
+	if !compiled[0].Matches("ru12.example.com", "anything") || compiled[0].Name != nil {
+		t.Error("a bare string must be a hostname pattern")
+	}
+	if !compiled[1].Matches("x", "Premium 1") || compiled[1].Matches("ru1.example.com", "RU 1") {
+		t.Error("a name-only group must match on the name alone")
+	}
+	if !compiled[2].Matches("de1", "DE 1") || compiled[2].Matches("de1", "DE one") || compiled[2].Matches("ru1", "RU 1") {
+		t.Error("hostname and name must both match")
+	}
+
+	if compiled, err := CompileHosts(Hosts{}); err != nil || len(compiled) != 0 {
+		t.Errorf("no patterns must compile to nothing: %v %v", compiled, err)
+	}
+
+	_, err = loadFile(writeConfig(t, "hosts:\n  shuffle:\n    - \"(\"\n    - \"\"\n    - name: \"[a-\"\n"), true)
+	if err == nil {
+		t.Fatal("a bad pattern must fail the config")
+	}
+	for _, want := range []string{
+		"hosts.shuffle[0].hostname is not a valid regexp",
+		"hosts.shuffle[1] needs a hostname or a name pattern",
+		"hosts.shuffle[2].name is not a valid regexp",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error should mention %s:\n%v", want, err)
+		}
+	}
+}

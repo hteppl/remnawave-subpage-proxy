@@ -36,6 +36,7 @@ Used 10.50 GB of 100.00 GB · 12 days left
 - **Conditional Rules** - Different text per client type, user agent or user status
 - **Fallback Cache** - Optionally replays the last good subscription while Remnawave is unreachable
 - **Force Unlimited** - Optionally reports every plan as unlimited, whatever quota the panel holds
+- **Host Shuffling** - Optionally shuffles the servers matching a hostname pattern, so users spread across them
 - **Transparent Proxy** - Header casing, the `X-Forwarded-*` chain and drop-on-error all preserved
 - **Docker Ready** - Multi-arch image, non-root, read-only, self-probing healthcheck
 
@@ -395,6 +396,52 @@ The web page is never stored, only subscription payloads.
 Two consequences should be considered: traffic counters in a replayed response
 are as old as the cache entry, and a user revoked during an outage retains access
 until the TTL expires. `SUBSCRIPTION_CACHE_TTL` should be selected accordingly.
+
+### Shuffling hosts
+
+Clients tend to connect to the first host in a subscription, so a fixed order
+sends every user to the same server. `hosts.shuffle` names groups of hosts by a
+Go regular expression matched against the server name; on every request the
+hosts within a group are shuffled among the positions they already occupy,
+while a host matching no pattern keeps its place:
+
+```yaml
+hosts:
+  shuffle:
+    - "^ru\\d+\\.example\\.com$"   # ru1, ru2, ru3 ... trade places
+    - "^(de|nl)\\."                  # a second, independent group
+```
+
+A bare string matches the server hostname. To group by the name the client
+shows instead — the link fragment or vmess `ps`, Xray `remarks`, the sing-box
+`tag`, the Clash proxy `name` — write a mapping with `name`; giving both keys
+requires both to match:
+
+```yaml
+hosts:
+  shuffle:
+    - name: "(?i)premium"          # whatever server they sit on
+    - hostname: "\\.example\\.com$"
+      name: "^🇩🇪"                  # our own German hosts only
+```
+
+A host matching several groups belongs to the first. `".*"` shuffles every
+host. The list is empty by default, and nothing is buffered or rewritten until
+a group is set.
+
+The format is detected from the body, so it does not matter which client-type
+path or user agent produced it. The plain link list, base64-wrapped or not, is
+moved line by line; `/json` and `/v2ray-json` move whole Xray configs; in a
+sing-box config the node outbounds are shuffled and every selector or urltest
+that lists them by tag is reordered to match; in Clash, Mihomo and Stash YAML
+the `proxies` list is shuffled and the names in every proxy group follow.
+`DIRECT`, `REJECT` and group names stay where they are. The web page is never
+touched.
+
+The proxy asks the upstream for an uncompressed body on subscription paths
+when shuffling is enabled; a body that still arrives compressed, or one larger
+than 8 MiB, is passed through unchanged. A replay from the fallback cache is
+shuffled as well.
 
 ### Blocking scanner probes
 

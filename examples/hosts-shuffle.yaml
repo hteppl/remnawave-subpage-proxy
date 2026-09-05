@@ -1,0 +1,16 @@
+# Spread users across servers: each entry is a group shuffled among its own
+# positions on every request; hosts matching no group keep their place.
+
+hosts:
+  shuffle:
+    # A bare string matches the server hostname.
+    - "^ru\\d+\\.example\\.com$"
+    # A second, independent group.
+    - hostname: "^(de|nl|fi)\\d*\\.example\\.com$"
+    # Everything: - ".*"
+
+headers:
+  - name: announce
+    template: "{TRAFFIC_USED} of {TRAFFIC_LIMIT} used · {DAYS_LEFT} days left"
+    encode: base64-prefixed
+    max_length: 200
