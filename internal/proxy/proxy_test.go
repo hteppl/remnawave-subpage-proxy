@@ -565,3 +565,55 @@ func newProxyWithBlocker(t *testing.T, upstreamURL string, b *Blocker) *Proxy {
 		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 }
+
+// A proxy with every stage off must still relay faithfully.
+func TestBareRelayForwardsWithoutRewriteStages(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("announce", "Used {TRAFFIC_USED}")
+		w.Header().Set("subscription-userinfo", "upload=1; download=2; total=100; expire=0")
+		w.Header().Set("X-Peer", r.Header.Get("X-Forwarded-For"))
+		_, _ = w.Write([]byte("vless://a@h:1#n\nvless://b@h:2#m"))
+	}))
+	defer upstream.Close()
+
+	target, err := url.Parse(upstream.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver, err := realip.Parse("1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := rewrite.New(rewrite.Options{
+		File:   config.File{Template: config.TemplateOpts{Unknown: config.UnknownKeep}},
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if engine.Enabled() {
+		t.Fatal("engine with no rules and no scanning should be disabled")
+	}
+	p := New(Options{Upstream: target, Timeout: 5 * time.Second, Engine: engine, RealIP: resolver,
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	if p.observes || p.rewrites {
+		t.Fatalf("observes=%v rewrites=%v, want both false", p.observes, p.rewrites)
+	}
+
+	front := httptest.NewServer(p)
+	defer front.Close()
+
+	resp, err := http.Get(front.URL + "/aBcDeF123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+
+	if got := resp.Header.Get("announce"); got != "Used {TRAFFIC_USED}" {
+		t.Errorf("announce rewritten by a disabled engine: %q", got)
+	}
+	if resp.Header.Get("X-Peer") == "" {
+		t.Error("X-Forwarded-For chain not maintained on the bare relay path")
+	}
+	if string(body) != "vless://a@h:1#n\nvless://b@h:2#m" {
+		t.Errorf("body altered: %q", body)
+	}
+}

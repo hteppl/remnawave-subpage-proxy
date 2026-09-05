@@ -76,6 +76,9 @@ func (s *Shuffler) permutation(hosts []Host) []int {
 			slots[g] = append(slots[g], i)
 		}
 	}
+	if len(slots) == 0 {
+		return nil
+	}
 
 	perm := make([]int, len(hosts))
 	for i := range perm {

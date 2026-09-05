@@ -56,6 +56,10 @@ type Proxy struct {
 	shuffler   *hosts.Shuffler
 	forceHTTPS bool
 	log        *slog.Logger
+
+	// rewrites: engine enabled; observes: any response stage enabled.
+	rewrites bool
+	observes bool
 }
 
 // maxShuffleBody caps what is buffered to shuffle; larger bodies stream through.
@@ -75,7 +79,9 @@ func New(o Options) *Proxy {
 		shuffler:   o.Shuffler,
 		forceHTTPS: o.ForceHTTPS,
 		log:        log,
+		rewrites:   o.Engine != nil && o.Engine.Enabled(),
 	}
+	p.observes = p.rewrites || p.subCache != nil || p.shuffler.Enabled()
 
 	transport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
@@ -117,7 +123,7 @@ func New(o Options) *Proxy {
 				return nil
 			}
 
-			if o.Engine != nil && o.Engine.Enabled() {
+			if p.rewrites {
 				o.Engine.Apply(resp.Request.Context(), resp.Header, rewrite.Request{
 					ShortUUID:       info.route.ShortUUID,
 					ClientType:      info.route.ClientType,
@@ -145,14 +151,19 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !p.observes {
+		p.rp.ServeHTTP(&lowercaseHeaderWriter{ResponseWriter: w}, r)
+		return
+	}
+
 	route := ParseRoute(r.URL.Path, p.subPrefix)
 	userAgent := r.Header.Get("User-Agent")
 
-	info := &requestInfo{
-		route:           route,
-		clientIP:        p.realIP.ClientIP(r),
-		userAgent:       userAgent,
-		subscriptionURL: p.subscriptionURL(r, route.ShortUUID),
+	info := &requestInfo{route: route, userAgent: userAgent}
+	// Only placeholders read these.
+	if p.rewrites {
+		info.clientIP = p.realIP.ClientIP(r)
+		info.subscriptionURL = p.subscriptionURL(r, route.ShortUUID)
 	}
 	if p.subCache != nil && route.ShortUUID != "" {
 		info.cacheKey = subcache.Key(

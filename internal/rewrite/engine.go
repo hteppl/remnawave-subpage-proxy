@@ -247,19 +247,25 @@ func (e *Engine) collect(h http.Header, rq Request) []candidate {
 }
 
 // candidateFor decides whether a header needs rewriting, and in which form.
+// The original value is derived only for actual candidates.
 func (e *Engine) candidateFor(name, current string, present bool, rule *config.HeaderRule) (candidate, bool) {
 	encode := config.EncodeAuto
 	if rule != nil {
 		encode = rule.Encode
 	}
-	original, hasOriginal := e.originalValue(current, present)
 
 	// A rule with an explicit template replaces the value outright.
 	if rule != nil && rule.Template != nil {
 		form := FormPlain
-		if encode == config.EncodeAuto && present {
-			if _, detected, ok := DecodeBase64(current); ok {
+		original, hasOriginal := "", false
+		if present {
+			decoded, detected, ok := DecodeBase64(current)
+			if ok && encode == config.EncodeAuto {
 				form = detected
+			}
+			original, hasOriginal = current, true
+			if ok && e.opts.DecodeBase64 {
+				original = decoded
 			}
 		}
 		return candidate{
@@ -287,8 +293,8 @@ func (e *Engine) candidateFor(name, current string, present bool, rule *config.H
 				form:        overrideForm(form, encode),
 				rule:        rule,
 				present:     true,
-				original:    original,
-				hasOriginal: hasOriginal,
+				original:    decoded,
+				hasOriginal: true,
 			}, true
 		}
 	}
@@ -302,8 +308,8 @@ func (e *Engine) candidateFor(name, current string, present bool, rule *config.H
 		form:        overrideForm(FormPlain, encode),
 		rule:        rule,
 		present:     true,
-		original:    original,
-		hasOriginal: hasOriginal,
+		original:    current,
+		hasOriginal: true,
 	}, true
 }
 
@@ -320,20 +326,6 @@ func (e *Engine) withOriginal(base func(string) (string, bool), c candidate) tmp
 		}
 		return tmpl.Render(c.original, base, e.unknown), true
 	}
-}
-
-// originalValue is the upstream text a template can embed, decoded when the
-// panel base64-encoded it.
-func (e *Engine) originalValue(current string, present bool) (string, bool) {
-	if !present {
-		return "", false
-	}
-	if e.opts.DecodeBase64 {
-		if decoded, _, ok := DecodeBase64(current); ok {
-			return decoded, true
-		}
-	}
-	return current, true
 }
 
 func overrideForm(detected Form, encode config.Encoding) Form {

@@ -61,9 +61,16 @@ func decodeList(body []byte) ([]byte, *base64.Encoding) {
 	return nil, nil
 }
 
-// isLinkList checks that the first non-empty line is a URI.
+// isLinkList checks that the first non-empty line is a URI, without
+// splitting the whole body.
 func isLinkList(text []byte) bool {
-	for _, line := range bytes.Split(text, []byte("\n")) {
+	for len(text) > 0 {
+		var line []byte
+		if nl := bytes.IndexByte(text, '\n'); nl >= 0 {
+			line, text = text[:nl], text[nl+1:]
+		} else {
+			line, text = text, nil
+		}
 		line = bytes.TrimSpace(line)
 		if len(line) == 0 {
 			continue

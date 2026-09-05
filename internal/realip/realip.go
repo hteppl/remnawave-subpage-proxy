@@ -75,6 +75,11 @@ func Parse(spec string) (*Resolver, error) {
 func (r *Resolver) ClientIP(req *http.Request) string {
 	peer := PeerIP(req)
 
+	// Nothing trusted: skip parsing the chain.
+	if !r.trustAll && r.hops == 0 && len(r.nets) == 0 {
+		return peer
+	}
+
 	forwarded := forwardedChain(req)
 	if len(forwarded) == 0 {
 		return peer

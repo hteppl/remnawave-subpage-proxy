@@ -374,3 +374,32 @@ func TestMalformedBodiesPassThrough(t *testing.T) {
 		}
 	}
 }
+
+func TestPermutationSkipsWhenNoHostMatches(t *testing.T) {
+	groups, err := config.CompileHosts(config.Hosts{Shuffle: []config.ShuffleGroup{{Hostname: `^eu\.`}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := New(groups)
+	s.shuffle = func(int, func(int, int)) { t.Fatal("shuffle called with no matching host") }
+	if perm := s.permutation([]Host{{Hostname: "us.example"}, {Hostname: "asia.example"}}); perm != nil {
+		t.Fatalf("permutation = %v, want nil", perm)
+	}
+}
+
+func TestIsLinkListStopsAtFirstLine(t *testing.T) {
+	cases := map[string]bool{
+		"":                                     false,
+		"\n\n  vless://a@h:1\nnot a link":      true,
+		"\r\nhello\nvless://a@h:1":             false,
+		"ss://abc#x":                           true,
+		"://nope":                              false,
+		"weird scheme://x":                     false,
+		strings.Repeat("\n", 5) + "trojan://a": true,
+	}
+	for in, want := range cases {
+		if got := isLinkList([]byte(in)); got != want {
+			t.Errorf("isLinkList(%q) = %v, want %v", in, got, want)
+		}
+	}
+}
