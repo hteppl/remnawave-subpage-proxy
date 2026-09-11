@@ -26,16 +26,45 @@ Used 10.50 GB of 100.00 GB · 12 days left
 
 ## Features
 
-- **Template Variables** - Fill `{TRAFFIC_USED}`, `{TRAFFIC_AVAILABLE}`, `{DAYS_LEFT}` and more into subscription params
-- **Zero-Cost Placeholders** - Traffic and expiry come from the response headers, so the common case makes no API call;
-  username, status and lifetime traffic come from the panel, cached and de-duplicated
-- **Two Template Sources** - Write the announce in the panel's Custom Response Headers or in `config.yaml`
-- **Conditional Rules** - Different text per client type, user agent or user status
 - **Fallback Cache** - Optionally replays the last good subscription while Remnawave is unreachable
 - **Force Unlimited** - Optionally reports every plan as unlimited, whatever quota the panel holds
-- **Host Shuffling** - Optionally shuffles the servers matching a name pattern, so users spread across them
+- **Scanner Blocking** - Probes for `/.env`, `/.git` and the like are refused before they reach the panel
+- **Rich Placeholders** - Formatted dates, `∞` for unlimited plans, percentages, a progress bar and modifiers on top
+  of the panel's own `{{VAR}}` templates
+- **Conditional Rules** - Templated text per client type, user agent, user status or quota
+- **Host Shuffling** - Optionally shuffles the servers matching a name pattern, each group within its own positions
+- **Zero-Cost Placeholders** - Traffic and expiry come from the response headers, so the common case makes no API call
 - **Transparent Proxy** - Header casing, the `X-Forwarded-*` chain and drop-on-error all preserved
 - **Docker Ready** - Multi-arch image, non-root, read-only, self-probing healthcheck
+
+## Compared with Remnawave
+
+Since Remnawave 3.0 the announce, profile title, support link and routing are
+plain Custom Response Headers, and the panel resolves its own `{{VAR}}`
+templates in them. A static announce such as `Used {{TRAFFIC_USED}} of
+{{TOTAL_TRAFFIC}}` therefore needs no proxy. The proxy covers what the panel
+does not:
+
+| Feature                              | Remnawave                                              | Proxy                                                    |
+|--------------------------------------|--------------------------------------------------------|----------------------------------------------------------|
+| Templated custom response headers    | `{{VAR}}`, 22 variables                                | `{VAR}`, more variables and modifiers                    |
+| Formatted expiry date                | — (only `{{EXPIRE_UNIX}}`)                             | `{EXPIRES_AT}`, `{EXPIRES_AT_DATE}`, `{EXPIRES_AT_TIME}` |
+| Unlimited plan in text               | `{{TRAFFIC_LEFT}}` renders `0`                         | `∞`, configurable                                        |
+| Percentages, progress bar, modifiers | —                                                      | `{TRAFFIC_USED_PERCENT}`, `{PROGRESS_BAR}`, `\|truncate` |
+| Base64 header values                 | `rwEncodeBase64:` prefix                               | `encode: base64` / `base64-prefixed`                     |
+| Length limit after rendering         | —                                                      | `max_length`                                             |
+| Headers by user agent / client       | Response Rules, static values only                     | `when: user_agent`, `client_types`, templated            |
+| Headers by user status or quota      | — (`{{STATUS:EXPIRED=…}}` labels only)                 | `when: user_statuses`, `has_traffic_limit`               |
+| Remarks for expired / limited users  | Custom Remarks                                         | — (use the panel)                                        |
+| Host shuffling                       | `randomizeHosts`; per-host flag moves hosts to the top | By client-visible name, positions kept                   |
+| Fallback cache during a panel outage | — (the connection is dropped)                          | `SUBSCRIPTION_CACHE_ENABLED`                             |
+| Force unlimited in the app's readout | —                                                      | `traffic.force_unlimited`                                |
+| Scanner probe blocking               | — (probes are looked up in the panel)                  | `block:`                                                 |
+| Header name casing                   | Lowercased by the subscription page                    | Preserved                                                |
+
+Both template layers can be combined in one header: the panel resolves
+`{{VAR}}` before the response reaches the proxy, which then resolves `{VAR}`.
+The syntaxes never collide.
 
 ## Prerequisites
 
@@ -135,7 +164,10 @@ Response Headers:
 | `announce` | `Used {TRAFFIC_USED} of {TRAFFIC_LIMIT}` |
 
 The proxy resolves the placeholders in the outgoing response; nothing else is
-required. `scan_all_headers` is on by default, so this applies to any header the
+required. The panel's `{{VAR}}` templates can sit in the same value, so
+`{{USERNAME}}: {TRAFFIC_USED} of {TRAFFIC_LIMIT}` works. A value stored with the
+panel's `rwEncodeBase64:` prefix arrives as `base64:…` and is handled the same
+way. `scan_all_headers` is on by default, so this applies to any header the
 panel sets, and base64 values are decoded, resolved and re-encoded in place.
 
 **From `config.yaml`** — for templates kept in version control, or needing
@@ -171,34 +203,40 @@ never interpreted as templates.
 
 ### Resolved without a panel request
 
-| Placeholder                 | Example                                      |
-|-----------------------------|----------------------------------------------|
-| `{TRAFFIC_USED}`            | `10.50 GB`                                   |
-| `{TRAFFIC_LIMIT}`           | `100.00 GB`                                  |
-| `{TRAFFIC_AVAILABLE}`       | `89.50 GB` (limit minus used)                |
-| `{TRAFFIC_USED_BYTES}`      | `10500000000`                                |
-| `{TRAFFIC_LIMIT_BYTES}`     | `100000000000`                               |
-| `{TRAFFIC_USED_IN_LIMIT}`   | `3.0` (used, in the limit's unit, no suffix) |
-| `{TRAFFIC_LIMIT_VALUE}`     | `20.0` (limit, no suffix)                    |
-| `{TRAFFIC_UNIT}`            | `GB` (the unit both share)                   |
-| `{TRAFFIC_AVAILABLE_BYTES}` | `89500000000`                                |
-| `{TRAFFIC_UPLOAD}`          | `0.50 GB`                                    |
-| `{TRAFFIC_DOWNLOAD}`        | `10.00 GB`                                   |
-| `{TRAFFIC_USED_PERCENT}`    | `10`                                         |
-| `{TRAFFIC_LEFT_PERCENT}`    | `90`                                         |
-| `{PROGRESS_BAR}`            | `▰▱▱▱▱▱▱▱▱▱`                                 |
-| `{DAYS_LEFT}`               | `12`                                         |
-| `{EXPIRES_AT}`              | `31.12.2026 23:59`                           |
-| `{EXPIRES_AT_DATE}`         | `31.12.2026`                                 |
-| `{EXPIRES_AT_TIME}`         | `23:59`                                      |
-| `{EXPIRES_AT_UNIX}`         | `1798761599`                                 |
-| `{SHORT_UUID}`              | `aBcDeF123`                                  |
-| `{CLIENT_TYPE}`             | `clash`                                      |
-| `{USER_AGENT}`              | `Happ/1.0`                                   |
-| `{CLIENT_IP}`               | `203.0.113.9`                                |
-| `{ORIGINAL_VALUE}`          | the header's own text, before rewriting      |
-| `{NOW}` `{DATE}` `{TIME}`   | `01.09.2026 14:30`                           |
-| `{SUBSCRIPTION_URL}`        | `https://example.com/sub/aBcDeF123`          |
+The Remnawave column names the panel's own variable, where one exists.
+
+| Placeholder                 | Example                                      | Remnawave                 |
+|-----------------------------|----------------------------------------------|---------------------------|
+| `{TRAFFIC_USED}`            | `10.50 GB`                                   | `{{TRAFFIC_USED}}`        |
+| `{TRAFFIC_LIMIT}`           | `100.00 GB`                                  | `{{TOTAL_TRAFFIC}}`       |
+| `{TRAFFIC_AVAILABLE}`       | `89.50 GB` (limit minus used)                | `{{TRAFFIC_LEFT}}`        |
+| `{TRAFFIC_USED_BYTES}`      | `10500000000`                                | `{{TRAFFIC_USED_BYTES}}`  |
+| `{TRAFFIC_LIMIT_BYTES}`     | `100000000000`                               | `{{TOTAL_TRAFFIC_BYTES}}` |
+| `{TRAFFIC_USED_IN_LIMIT}`   | `3.0` (used, in the limit's unit, no suffix) | —                         |
+| `{TRAFFIC_LIMIT_VALUE}`     | `20.0` (limit, no suffix)                    | —                         |
+| `{TRAFFIC_UNIT}`            | `GB` (the unit both share)                   | —                         |
+| `{TRAFFIC_AVAILABLE_BYTES}` | `89500000000`                                | `{{TRAFFIC_LEFT_BYTES}}`  |
+| `{TRAFFIC_UPLOAD}`          | `0.50 GB`                                    | —                         |
+| `{TRAFFIC_DOWNLOAD}`        | `10.00 GB`                                   | —                         |
+| `{TRAFFIC_USED_PERCENT}`    | `10`                                         | —                         |
+| `{TRAFFIC_LEFT_PERCENT}`    | `90`                                         | —                         |
+| `{PROGRESS_BAR}`            | `▰▱▱▱▱▱▱▱▱▱`                                 | —                         |
+| `{DAYS_LEFT}`               | `12`                                         | `{{DAYS_LEFT}}`           |
+| `{EXPIRES_AT}`              | `31.12.2026 23:59`                           | —                         |
+| `{EXPIRES_AT_DATE}`         | `31.12.2026`                                 | —                         |
+| `{EXPIRES_AT_TIME}`         | `23:59`                                      | —                         |
+| `{EXPIRES_AT_UNIX}`         | `1798761599`                                 | `{{EXPIRE_UNIX}}`         |
+| `{SHORT_UUID}`              | `aBcDeF123`                                  | `{{SHORT_UUID}}`          |
+| `{CLIENT_TYPE}`             | `clash`                                      | —                         |
+| `{USER_AGENT}`              | `Happ/1.0`                                   | —                         |
+| `{CLIENT_IP}`               | `203.0.113.9`                                | —                         |
+| `{ORIGINAL_VALUE}`          | the header's own text, before rewriting      | —                         |
+| `{NOW}` `{DATE}` `{TIME}`   | `01.09.2026 14:30`                           | —                         |
+| `{SUBSCRIPTION_URL}`        | `https://example.com/sub/aBcDeF123`          | `{{SUBSCRIPTION_URL}}`    |
+
+Where the panel has an equivalent, the native variable is usually the simpler
+choice. The proxy's version differs where noted: an unlimited plan renders as
+`∞` rather than `0`, and values follow the proxy's own formatting.
 
 `{TRAFFIC_USED_IN_LIMIT}`, `{TRAFFIC_LIMIT_VALUE}` and `{TRAFFIC_UNIT}` render
 both sides of a quota in one shared unit: `{TRAFFIC_USED_IN_LIMIT} of
@@ -218,15 +256,20 @@ An unlimited plan renders `{TRAFFIC_LIMIT}` and `{TRAFFIC_AVAILABLE}` as `∞`
 
 ### Requiring a panel request (cached)
 
-| Placeholder                | Example                                         |
-|----------------------------|-------------------------------------------------|
-| `{USERNAME}`               | `alice`                                         |
-| `{USER_STATUS}`            | `ACTIVE` `DISABLED` `LIMITED` `EXPIRED`         |
-| `{IS_ACTIVE}`              | `true`                                          |
-| `{TRAFFIC_LIMIT_STRATEGY}` | `NO_RESET` `DAY` `WEEK` `MONTH` `MONTH_ROLLING` |
-| `{LIFETIME_TRAFFIC_USED}`  | `1.20 TB`                                       |
+| Placeholder                | Example                                         | Remnawave                         |
+|----------------------------|-------------------------------------------------|-----------------------------------|
+| `{USERNAME}`               | `alice`                                         | `{{USERNAME}}`                    |
+| `{USER_STATUS}`            | `ACTIVE` `DISABLED` `LIMITED` `EXPIRED`         | `{{STATUS}}`                      |
+| `{IS_ACTIVE}`              | `true`                                          | `{{STATUS:ACTIVE=true\|…}}`       |
+| `{TRAFFIC_LIMIT_STRATEGY}` | `NO_RESET` `DAY` `WEEK` `MONTH` `MONTH_ROLLING` | `{{RESET_STRATEGY}}`              |
+| `{LIFETIME_TRAFFIC_USED}`  | `1.20 TB`                                       | `{{LIFETIME_USED_BYTES}}` (bytes) |
 
 In addition, any variable defined under `vars:` in `config.yaml`.
+
+Every placeholder in this table has a native counterpart that costs no API
+request, since the panel fills it while building the response. In a header the
+panel sets, prefer `{{USERNAME}}` to `{USERNAME}`. The proxy's versions exist
+for `config.yaml` rules and for conditions such as `user_statuses`.
 
 ## Conditions
 
@@ -271,6 +314,11 @@ is shown, while `has_traffic_limit` tests the quota configured in the panel, so 
 plan presented as unlimited still matches `has_traffic_limit: true`.
 `user_statuses` always triggers a panel request, as the status is absent from
 the response headers.
+
+Remnawave's Response Rules can also match a user agent, but the headers they
+add are sent verbatim, without templates, and they cannot test the user's
+status or quota. Selecting a config template or excluding hosts per client is
+done better in Response Rules; the text of the header is done here.
 
 ## Configuration reference
 
@@ -365,6 +413,11 @@ hosts:
     - "(?i)premium"    # every Premium node is shuffled with the others
     - "^🇩🇪 "           # a second, independent group
 ```
+
+Remnawave's own `randomizeHosts` shuffles the whole list, and its per-host
+shuffle flag moves the flagged hosts to the top. `hosts.shuffle` is for keeping
+the layout: fixed hosts stay where they are and each group moves only within
+its own positions.
 
 Server addresses are never matched, so hosts can be regrouped by renaming them
 in the panel. A host matching several groups belongs to the first, `".*"`
