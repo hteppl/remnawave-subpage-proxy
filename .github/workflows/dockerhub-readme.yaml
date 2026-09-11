@@ -6,6 +6,7 @@ on:
       - master
     paths:
       - README.md
+      - .github/scripts/dockerhub-readme.sh
       - .github/workflows/dockerhub-readme.yaml
 
 jobs:
@@ -14,6 +15,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      # Docker Hub refuses a description over 25000 bytes
+      - name: Build DockerHub README
+        run: sh .github/scripts/dockerhub-readme.sh README.md DOCKERHUB.md
 
       - name: Push README to DockerHub
         uses: christian-korneck/update-container-description-action@v1
@@ -24,4 +29,4 @@ jobs:
           destination_container_repo: hteppl/remnawave-subpage-proxy
           provider: dockerhub
           short_description: "Live templates, conditions and host shuffling for Remnawave (https://docs.rw) subscriptions."
-          readme_file: "README.md"
+          readme_file: "DOCKERHUB.md"

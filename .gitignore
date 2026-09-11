@@ -54,6 +54,7 @@ docker-compose.override.yaml
 .DS_Store
 
 # Build and scratch output
+DOCKERHUB.md
 bin/
 dist/
 stage/
