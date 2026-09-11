@@ -11,11 +11,13 @@
 # Test binary, built with `go test -c`
 *.test
 
-# Code coverage profiles and other test artifacts
+# Code coverage profiles, benchmark profiles and other test artifacts
 *.out
 coverage.*
 *.coverprofile
 profile.cov
+*.prof
+*.pprof
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
@@ -24,17 +26,34 @@ profile.cov
 go.work
 go.work.sum
 
-# env file
+# Local secrets: API tokens, panel credentials, Cloudflare and Caddy keys.
+# Only the committed *.example templates are tracked.
 .env
+.env.*
+!.env*.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+secrets/
 
-# Editor/IDE
+# Local runtime configuration: copies of config.example.yaml and personal
+# overrides, which may hold real hosts or support contacts.
+config.yaml
+config.*.yaml
+!config.example.yaml
+*.local.yaml
+*.local.yml
+docker-compose.override.yml
+docker-compose.override.yaml
+
+# Editor/IDE and OS files
 .idea/
 .vscode/
+.DS_Store
 
-# Local runtime configuration
-config.yaml
-examples/*.local.yaml
-.env.subscription-page
+# Build and scratch output
 bin/
 dist/
 stage/
