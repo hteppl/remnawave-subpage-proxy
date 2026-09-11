@@ -44,8 +44,6 @@ func TestKeySeparatesVariants(t *testing.T) {
 	c.Put(Key("abc", "", "v2rayNG", ""), entry("base64 links"))
 	c.Put(Key("abc", "", "v2rayNG", "gzip"), entry("gzipped bytes"))
 
-	// A gzipped body replayed to a client that never asked for gzip would be
-	// unreadable, so Accept-Encoding has to be part of the identity.
 	for _, tc := range []struct{ key, want string }{
 		{Key("abc", "clash", "Happ/1.0", ""), "clash config"},
 		{Key("abc", "json", "Happ/1.0", ""), "json config"},

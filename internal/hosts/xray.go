@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 )
 
-// applyXray handles an array of Xray configs, one per host.
 func (s *Shuffler) applyXray(body []byte) ([]byte, bool) {
 	items, err := parseArray(body)
 	if err != nil {
@@ -28,7 +27,6 @@ func (s *Shuffler) applyXray(body []byte) ([]byte, bool) {
 	return indentLike(body, marshalArray(shuffled)), true
 }
 
-// xrayName reads the remarks shown to the user.
 func xrayName(config json.RawMessage) string {
 	var parsed struct {
 		Remarks string `json:"remarks"`

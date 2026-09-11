@@ -105,7 +105,6 @@ func marshalArray(items []json.RawMessage) []byte {
 	return buf.Bytes()
 }
 
-// indentLike formats out with the indentation original used.
 func indentLike(original, out []byte) []byte {
 	var buf bytes.Buffer
 	indent := detectIndent(original)

@@ -125,6 +125,36 @@ func TestUnlimitedPlan(t *testing.T) {
 	}
 }
 
+// A name the resolver answers but the Catalog lacks, or the reverse, is silently dead.
+func TestEveryCatalogNameResolves(t *testing.T) {
+	r := NewResolver(testFile())
+	userInfo := UserInfo{Upload: 1, Download: 2, Total: 10, Expire: time.Now().Add(time.Hour).Unix()}
+	lookup := r.Lookup(Source{
+		ShortUUID:       "abc",
+		ClientType:      "json",
+		UserAgent:       "Happ/1.0",
+		ClientIP:        "203.0.113.9",
+		SubscriptionURL: "https://example.com/abc",
+		UserInfo:        &userInfo,
+		Panel: &panel.Info{User: panel.User{
+			Username: "alice", UserStatus: "ACTIVE", TrafficLimitStrategy: "MONTH",
+			LifetimeTrafficUsedBytes: "1",
+		}},
+	})
+	for name := range Catalog {
+		// Answered per header by the engine, never by the resolver.
+		if name == "ORIGINAL_VALUE" {
+			continue
+		}
+		if _, ok := lookup(name); !ok {
+			t.Errorf("%s is in the Catalog but does not resolve", name)
+		}
+	}
+	if _, ok := lookup("NOT_A_PLACEHOLDER"); ok {
+		t.Error("a name outside the Catalog resolved")
+	}
+}
+
 func TestResolveFromPanel(t *testing.T) {
 	r := NewResolver(testFile())
 	expires := time.Now().Add(72 * time.Hour).UTC()
@@ -224,7 +254,6 @@ func TestForceUnlimitedTotal(t *testing.T) {
 	}
 }
 
-// force_unlimited is a header-level concern; the resolver never applies it.
 func TestForceUnlimitedDoesNotAffectPlaceholders(t *testing.T) {
 	file := testFile()
 	file.Traffic.ForceUnlimited = true

@@ -10,19 +10,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// The placeholder hosts point nowhere: connecting to one fails at once, so a
-// client that selects it gets no traffic through, only its name on screen.
+// Placeholder hosts point at 0.0.0.0 so selecting one fails at once and passes no traffic.
 const (
 	placeholderServer = "0.0.0.0"
 	placeholderPort   = 1
 	placeholderUUID   = "00000000-0000-0000-0000-000000000000"
 )
 
-// Placeholder builds a subscription in format holding one dead host per name,
-// in order, so a message too long for one host name reads across several. It
-// stands in for the real hosts when they must not be sent, the way the panel's
-// own custom remarks do. Blank and repeated names are dropped: sing-box tags
-// and Clash proxy names must be unique, or the whole profile is refused.
+// Placeholder builds one dead host per name; blank and repeated names are
+// dropped because sing-box and Clash refuse duplicates.
 func Placeholder(format Format, names ...string) []byte {
 	names = uniqueNames(names)
 	switch format {
@@ -101,8 +97,7 @@ func placeholderSingbox(names []string) []byte {
 	return out
 }
 
-// placeholderClash carries a group and a catch-all rule, without which a
-// Clash core refuses the profile outright instead of showing the names.
+// placeholderClash needs a group and a catch-all rule, or Clash refuses the profile outright.
 func placeholderClash(names []string) []byte {
 	proxies := make([]map[string]any, len(names))
 	for i, name := range names {

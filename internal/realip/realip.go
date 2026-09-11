@@ -21,9 +21,7 @@ var presets = map[string][]string{
 	"uniquelocal": {"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"},
 }
 
-// Parse reads TRUST_PROXY with Express "trust proxy" semantics: "true"/"false",
-// a hop count, or a list of presets (loopback, linklocal, uniquelocal), IPs and
-// CIDR ranges.
+// Parse reads TRUST_PROXY with Express "trust proxy" semantics.
 func Parse(spec string) (*Resolver, error) {
 	spec = strings.TrimSpace(spec)
 	if spec == "" {
@@ -75,7 +73,6 @@ func Parse(spec string) (*Resolver, error) {
 func (r *Resolver) ClientIP(req *http.Request) string {
 	peer := PeerIP(req)
 
-	// Nothing trusted: skip parsing the chain.
 	if !r.trustAll && r.hops == 0 && len(r.nets) == 0 {
 		return peer
 	}

@@ -8,9 +8,7 @@ import (
 	"github.com/hteppl/remnawave-subpage-proxy/internal/config"
 )
 
-// scannerExtensions are file types an automated probe asks for. Everything the
-// subscription page actually serves is deliberately absent: .js, .css, .map,
-// .json, .svg and the image and font types its assets use.
+// Everything the page serves (.js, .css, .map, .json, .svg, images, fonts) is deliberately absent.
 var scannerExtensions = map[string]struct{}{
 	".php": {}, ".php3": {}, ".php4": {}, ".php5": {}, ".phtml": {},
 	".asp": {}, ".aspx": {}, ".jsp": {}, ".jspx": {},
@@ -25,10 +23,7 @@ var scannerExtensions = map[string]struct{}{
 	".zip": {}, ".tar": {}, ".rar": {}, ".7z": {}, ".war": {}, ".jar": {},
 }
 
-// scannerNames are first path segments that never name a subscription. The
-// panel mints short UUIDs as nanoids, so none of these words is one in
-// practice — but ParseRoute does not enforce that shape, so a deployment that
-// somehow hands out such a name has to turn the filter off entirely.
+// ParseRoute does not enforce the nanoid shape, so a subscription named like one of these needs the filter off.
 var scannerNames = map[string]struct{}{
 	"env": {}, "wordpress": {}, "wp": {}, "wp-admin": {}, "wp-login": {},
 	"wp-content": {}, "wp-includes": {},
@@ -48,22 +43,18 @@ var scannerNames = map[string]struct{}{
 // wellKnown carries ACME challenges and security.txt.
 const wellKnown = ".well-known"
 
-// appConfigExt is the extension of the one dotted file the page serves from
-// its own assets directory, /assets/.app-config-v2.json.
+// The one dotted file the page serves: /assets/.app-config-v2.json.
 const appConfigExt = ".json"
 
-// Blocker refuses obvious probes before they reach the upstream, so a scanner
-// sweep costs nothing beyond the connection itself.
+// Blocker refuses obvious probes before they reach the upstream.
 type Blocker struct {
 	enabled bool
-	// prefix is CUSTOM_SUB_PREFIX, stripped with the same helper ParseRoute
-	// uses, so the two cannot disagree about what a prefixed path is.
+	// Stripped with ParseRoute's helper so the two agree on what a prefixed path is.
 	prefix   string
 	patterns []*regexp.Regexp
 }
 
-// NewBlocker compiles the extra patterns itself: a Block assembled outside the
-// config loader would otherwise carry patterns that refuse nothing, in silence.
+// NewBlocker compiles the patterns itself, so a hand-built Block cannot silently refuse nothing.
 func NewBlocker(c config.Block, subPrefix string) (*Blocker, error) {
 	patterns, err := config.CompileBlock(c)
 	if err != nil {
@@ -72,8 +63,7 @@ func NewBlocker(c config.Block, subPrefix string) (*Blocker, error) {
 	return &Blocker{enabled: c.Enabled, prefix: subPrefix, patterns: patterns}, nil
 }
 
-// Blocked reports whether path should be refused. The path arrives already
-// percent-decoded, so an encoded dot cannot slip past.
+// Blocked expects a percent-decoded path, so an encoded dot cannot slip past.
 func (b *Blocker) Blocked(path string) bool {
 	if b == nil || !b.enabled {
 		return false
@@ -90,17 +80,14 @@ func (b *Blocker) Blocked(path string) bool {
 		return false
 	}
 
-	// Every segment is weighed, not just the last one: /index.php/x reaches
-	// the same file as /index.php, and /dump.sql/ the same as /dump.sql, once
-	// the upstream has normalised the path.
+	// Every segment is weighed: the upstream normalises /index.php/x to /index.php.
 	for _, segment := range segments {
 		if _, hit := scannerExtensions[extension(segment)]; hit {
 			return true
 		}
 	}
 
-	// The name check runs on the path the page sees, not on the prefix an
-	// operator may have chosen — CUSTOM_SUB_PREFIX=admin must keep working.
+	// Runs after the prefix is stripped so CUSTOM_SUB_PREFIX=admin keeps working.
 	named, _ := stripPrefix(segments, b.prefix)
 	if len(named) == 0 {
 		return false
@@ -113,16 +100,14 @@ func (b *Blocker) Blocked(path string) bool {
 		if !strings.HasPrefix(segment, ".") {
 			continue
 		}
-		// "." and ".." are traversal wherever they sit: the upstream resolves
-		// them, so neither exemption below may let one through.
+		// The upstream resolves "." and "..", so no exemption below may let one through.
 		if segment == "." || segment == ".." {
 			return true
 		}
 		if i == 0 && strings.EqualFold(segment, wellKnown) {
 			continue
 		}
-		// The page serves exactly one dotted file of its own, so the exemption
-		// reaches no further than a JSON name directly inside /assets.
+		// The exemption covers only a JSON name directly inside /assets.
 		if i == 1 && i == len(named)-1 &&
 			strings.EqualFold(named[0], assetsDir) &&
 			extension(segment) == appConfigExt {
@@ -133,7 +118,6 @@ func (b *Blocker) Blocked(path string) bool {
 	return false
 }
 
-// extension is the lowercased suffix of a path segment, "" when it has no dot.
 // A leading dot counts: ".env" is an extension in its own right.
 func extension(segment string) string {
 	i := strings.LastIndexByte(segment, '.')
@@ -143,8 +127,7 @@ func extension(segment string) string {
 	return strings.ToLower(segment[i:])
 }
 
-// refuse answers without touching the upstream. 404 is deliberate: it says
-// nothing about what does exist here.
+// 404 is deliberate: it reveals nothing about what exists here.
 func refuse(w http.ResponseWriter) {
 	w.WriteHeader(http.StatusNotFound)
 }

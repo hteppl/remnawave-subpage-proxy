@@ -45,7 +45,6 @@ func newUAProxy(t *testing.T, upstreamURL string, cache *subcache.Cache, rules .
 	})
 }
 
-// subscriptionUpstream serves a real host list with a quota, counting hits.
 func subscriptionUpstream(t *testing.T, hits *atomic.Int32, body string) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -97,8 +96,7 @@ func TestBrokenUserAgentGetsANoticeInsteadOfHosts(t *testing.T) {
 	}
 }
 
-// A multi-line message reads down the server list, one host per line, while
-// the banner gets it whole.
+// A multi-line message gives one host per line, while the banner gets it whole.
 func TestMultiLineNoticeGivesAHostPerLine(t *testing.T) {
 	var hits atomic.Int32
 	upstream := subscriptionUpstream(t, &hits, "vless://x@real.example.com:443#Real\n")
@@ -160,8 +158,7 @@ func TestNoticeFollowsTheUpstreamFormat(t *testing.T) {
 	}
 }
 
-// A block answers at the proxy: the user still reads the message, but the
-// subscription page is never asked to build anything.
+// The subscription page is never asked to build anything.
 func TestBlockedUserAgentGetsTheMessageWithoutReachingUpstream(t *testing.T) {
 	var hits atomic.Int32
 	upstream := subscriptionUpstream(t, &hits, "vless://x@real.example.com:443#Real\n")
@@ -209,7 +206,6 @@ func TestBlockedUserAgentGetsTheMessageWithoutReachingUpstream(t *testing.T) {
 	}
 }
 
-// With no body to read, a block takes its format from the client-type path.
 func TestBlockFollowsTheClientTypePath(t *testing.T) {
 	var hits atomic.Int32
 	upstream := subscriptionUpstream(t, &hits, "")
@@ -233,8 +229,6 @@ func TestBlockFollowsTheClientTypePath(t *testing.T) {
 	}
 }
 
-// A notice rule without a message is switched off, so the subscription goes
-// through as if the rule were not there.
 func TestNoticeRuleWithoutMessageIsDisabled(t *testing.T) {
 	var hits atomic.Int32
 	const hostList = "vless://x@real.example.com:443#Real\n"
@@ -277,8 +271,7 @@ func TestNormalUserAgentIsUntouched(t *testing.T) {
 	}
 }
 
-// A user the panel does not know must not be told to fix their agent, and the
-// web page is left alone.
+// A user the panel does not know must not be told to fix their agent.
 func TestNoticeSkipsErrorsAndTheWebPage(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "missing") {
@@ -322,8 +315,7 @@ func TestNoticeIsNeverCached(t *testing.T) {
 	_ = resp.Body.Close()
 	upstream.Close()
 
-	// With nothing cached the proxy drops the connection, as it does for any
-	// uncached subscription while the upstream is down.
+	// With nothing cached the proxy drops the connection, as for any uncached subscription.
 	req, _ := http.NewRequest(http.MethodGet, front.URL+"/aBcDeF123", nil)
 	req.Header.Set("User-Agent", pastedLink)
 	if resp, err := front.Client().Do(req); err == nil {

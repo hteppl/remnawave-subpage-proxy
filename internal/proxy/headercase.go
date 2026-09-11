@@ -7,8 +7,7 @@ import (
 	"strings"
 )
 
-// transportHeaders keep canonical spelling: net/http looks them up that way
-// while framing the response.
+// net/http looks these up in canonical spelling while framing the response.
 var transportHeaders = map[string]struct{}{
 	"Content-Length":    {},
 	"Content-Type":      {},
@@ -19,9 +18,7 @@ var transportHeaders = map[string]struct{}{
 	"Upgrade":           {},
 }
 
-// lowercaseHeaderWriter restores the lowercase spelling the subscription page
-// uses, which Go canonicalises away on parse. Legal either way, but this proxy
-// is a drop-in and subscription clients are not uniformly careful.
+// Restores the page's lowercase header names, which Go canonicalises on parse; not all clients are careful about case.
 type lowercaseHeaderWriter struct {
 	http.ResponseWriter
 	wroteBody bool

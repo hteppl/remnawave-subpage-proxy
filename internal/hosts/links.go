@@ -6,10 +6,11 @@ import (
 	"encoding/json"
 	"net/url"
 	"strings"
+
+	"github.com/hteppl/remnawave-subpage-proxy/internal/b64"
 )
 
-// applyLinks handles one link per line, plain or base64-wrapped. Lines are
-// moved byte for byte.
+// applyLinks moves lines byte for byte, plain or base64-wrapped.
 func (s *Shuffler) applyLinks(body []byte) ([]byte, bool) {
 	text, enc := decodeList(body)
 	if text == nil {
@@ -38,31 +39,16 @@ func (s *Shuffler) applyLinks(body []byte) ([]byte, bool) {
 	return out, true
 }
 
-// decodeList returns the link list and the base64 encoding to restore, nil
-// encoding for plain text, nil text for neither.
+// decodeList returns nil text for a non-link body and a nil encoding for plain text.
 func decodeList(body []byte) ([]byte, *base64.Encoding) {
 	if isLinkList(body) {
 		return body, nil
 	}
-
-	raw := bytes.TrimSpace(body)
-	for _, enc := range []*base64.Encoding{
-		base64.StdEncoding, base64.RawStdEncoding, base64.URLEncoding, base64.RawURLEncoding,
-	} {
-		decoded, err := enc.DecodeString(string(raw))
-		if err != nil {
-			continue
-		}
-		if isLinkList(decoded) {
-			return decoded, enc
-		}
-		return nil, nil
-	}
-	return nil, nil
+	decoded, enc, _ := b64.Decode(string(body), isLinkList)
+	return decoded, enc
 }
 
-// isLinkList checks that the first non-empty line is a URI, without
-// splitting the whole body.
+// isLinkList checks only the first non-empty line to avoid splitting the whole body.
 func isLinkList(text []byte) bool {
 	for len(text) > 0 {
 		var line []byte
@@ -92,7 +78,6 @@ func isSchemeName(scheme []byte) bool {
 	return true
 }
 
-// linkName extracts the name shown to the user from a share link.
 func linkName(link string) string {
 	scheme, rest, found := strings.Cut(link, "://")
 	if !found {
@@ -116,7 +101,7 @@ func fragmentName(link string) string {
 // vmessName reads ps from vmess://base64(json), falling back to a fragment.
 func vmessName(payload string) string {
 	payload, fragment, _ := strings.Cut(payload, "#")
-	decoded, ok := decodeLoose(payload)
+	decoded, _, ok := b64.Decode(payload, nil)
 	if !ok {
 		return unescape(fragment)
 	}
@@ -134,17 +119,4 @@ func unescape(fragment string) string {
 		return name
 	}
 	return fragment
-}
-
-// decodeLoose accepts any base64 alphabet, padded or not.
-func decodeLoose(s string) ([]byte, bool) {
-	s = strings.TrimSpace(s)
-	for _, enc := range []*base64.Encoding{
-		base64.StdEncoding, base64.RawStdEncoding, base64.URLEncoding, base64.RawURLEncoding,
-	} {
-		if decoded, err := enc.DecodeString(s); err == nil {
-			return decoded, true
-		}
-	}
-	return nil, false
 }

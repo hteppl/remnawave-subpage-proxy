@@ -117,8 +117,7 @@ func TestContains(t *testing.T) {
 }
 
 func TestTruncate(t *testing.T) {
-	// Multi-byte runes must be counted as characters, not bytes: the announce
-	// header is limited by displayed characters.
+	// The announce header is limited by displayed characters, not bytes.
 	if got := Truncate("привет мир", 6); got != "приве…" {
 		t.Errorf("Truncate = %q, want %q", got, "приве…")
 	}

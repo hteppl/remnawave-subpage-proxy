@@ -67,52 +67,52 @@ func run() error {
 		"header_rules", len(cfg.File.Headers),
 		"scan_all_headers", cfg.File.Template.ScanAllHeaders,
 	)
-
 	for _, skipped := range cfg.Skipped {
 		log.Warn("unknown config section ignored; it may need a newer version", "detail", skipped)
 	}
 
-	ipResolver, err := realip.Parse(cfg.Upstream.TrustProxy)
+	handler, err := newHandler(cfg, log)
 	if err != nil {
 		return err
 	}
 
-	var fetcher rewrite.InfoFetcher
-	if cfg.Panel.Enabled {
-		client := panel.New(panel.Options{
-			BaseURL:          cfg.Panel.URL,
-			Token:            cfg.Panel.Token,
-			Timeout:          cfg.Panel.Timeout,
-			CaddyAuthToken:   cfg.Panel.CaddyAuthToken,
-			CloudflareID:     cfg.Panel.CloudflareID,
-			CloudflareSecret: cfg.Panel.CloudflareSecret,
+	servers := []*http.Server{{
+		Addr:              cfg.HTTP.Addr,
+		Handler:           handler,
+		ReadHeaderTimeout: cfg.HTTP.ReadTimeout,
+		ReadTimeout:       cfg.HTTP.ReadTimeout,
+		WriteTimeout:      cfg.HTTP.WriteTimeout,
+		IdleTimeout:       cfg.HTTP.IdleTimeout,
+		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelDebug),
+	}}
+	if cfg.HTTP.HealthAddr != "" {
+		servers = append(servers, &http.Server{
+			Addr:              cfg.HTTP.HealthAddr,
+			Handler:           healthHandler(cfg.Upstream.URL.Host),
+			ReadHeaderTimeout: 5 * time.Second,
+			ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelDebug),
 		})
-
-		pingCtx, cancel := context.WithTimeout(context.Background(), cfg.Panel.Timeout)
-		panelVersion, pingErr := client.Ping(pingCtx)
-		cancel()
-		if pingErr != nil {
-			// Not fatal: everything but panel placeholders keeps flowing.
-			log.Error("cannot reach the Remnawave panel; panel-backed placeholders will not resolve until it recovers",
-				"panel", cfg.Panel.URL.String(),
-				"error", pingErr,
-			)
-		} else {
-			log.Info("connected to Remnawave panel", "panel", cfg.Panel.URL.String(), "panel_version", panelVersion)
-		}
-
-		fetcher = panel.NewCache(client, cfg.Cache.TTL, cfg.Cache.NegativeTTL, cfg.Cache.MaxEntries)
-	} else {
-		log.Warn("panel access disabled; only placeholders answerable from response headers will resolve")
 	}
+	return serve(log, cfg.HTTP.ShutdownTimeout, servers...)
+}
 
-	engine := rewrite.New(rewrite.Options{
-		File:          cfg.File,
-		Fetcher:       fetcher,
-		AlwaysFetch:   cfg.Panel.AlwaysFetch,
-		ForwardRealIP: cfg.Panel.ForwardRealIP,
-		Logger:        log,
-	})
+func newHandler(cfg *config.Config, log *slog.Logger) (http.Handler, error) {
+	ipResolver, err := realip.Parse(cfg.Upstream.TrustProxy)
+	if err != nil {
+		return nil, err
+	}
+	blocker, err := proxy.NewBlocker(cfg.File.Block, cfg.Upstream.SubPrefix)
+	if err != nil {
+		return nil, err
+	}
+	shuffleGroups, err := config.CompileHosts(cfg.File.Hosts)
+	if err != nil {
+		return nil, err
+	}
+	userAgents, err := proxy.NewUserAgentFilter(cfg.File.UserAgents)
+	if err != nil {
+		return nil, err
+	}
 
 	var subCache *subcache.Cache
 	if cfg.SubCache.Enabled {
@@ -123,81 +123,76 @@ func run() error {
 			"max_body", cfg.SubCache.MaxBody,
 		)
 	}
-
-	blocker, err := proxy.NewBlocker(cfg.File.Block, cfg.Upstream.SubPrefix)
-	if err != nil {
-		return err
-	}
-
-	shuffleGroups, err := config.CompileHosts(cfg.File.Hosts)
-	if err != nil {
-		return err
-	}
 	shuffler := hosts.New(shuffleGroups)
 	if shuffler.Enabled() {
 		log.Info("host shuffling enabled", "groups", len(shuffleGroups))
 	}
-
-	userAgents, err := proxy.NewUserAgentFilter(cfg.File.UserAgents)
-	if err != nil {
-		return err
-	}
 	for _, rule := range userAgents.Disabled() {
-		log.Warn("user-agent rule disabled: action notice needs a message to show the user", "rule", rule)
+		log.Warn("user-agent rule disabled: it needs a message to show the user", "rule", rule)
 	}
 	if userAgents.Enabled() {
 		log.Info("user-agent filter enabled", "rules", userAgents.Len())
 	}
 
-	handler := proxy.New(proxy.Options{
-		Upstream:   cfg.Upstream.URL,
-		SubPrefix:  cfg.Upstream.SubPrefix,
-		Timeout:    cfg.Upstream.Timeout,
-		Engine:     engine,
+	return proxy.New(proxy.Options{
+		Upstream:  cfg.Upstream.URL,
+		SubPrefix: cfg.Upstream.SubPrefix,
+		Timeout:   cfg.Upstream.Timeout,
+		Engine: rewrite.New(rewrite.Options{
+			File:          cfg.File,
+			Fetcher:       newFetcher(cfg, log),
+			AlwaysFetch:   cfg.Panel.AlwaysFetch,
+			ForwardRealIP: cfg.Panel.ForwardRealIP,
+			Logger:        log,
+		}),
 		RealIP:     ipResolver,
 		Blocker:    blocker,
 		SubCache:   subCache,
 		Shuffler:   shuffler,
 		UserAgents: userAgents,
-		ForceHTTPS: forceHTTPS(),
+		ForceHTTPS: cfg.Upstream.ForceHTTPS,
 		Logger:     log,
+	}), nil
+}
+
+// newFetcher returns nil when panel access is off; an unreachable panel is not fatal.
+func newFetcher(cfg *config.Config, log *slog.Logger) rewrite.InfoFetcher {
+	if !cfg.Panel.Enabled {
+		log.Warn("panel access disabled; only placeholders answerable from response headers will resolve")
+		return nil
+	}
+	client := panel.New(panel.Options{
+		BaseURL:          cfg.Panel.URL,
+		Token:            cfg.Panel.Token,
+		Timeout:          cfg.Panel.Timeout,
+		CaddyAuthToken:   cfg.Panel.CaddyAuthToken,
+		CloudflareID:     cfg.Panel.CloudflareID,
+		CloudflareSecret: cfg.Panel.CloudflareSecret,
 	})
 
-	server := &http.Server{
-		Addr:              cfg.HTTP.Addr,
-		Handler:           handler,
-		ReadHeaderTimeout: cfg.HTTP.ReadTimeout,
-		ReadTimeout:       cfg.HTTP.ReadTimeout,
-		WriteTimeout:      cfg.HTTP.WriteTimeout,
-		IdleTimeout:       cfg.HTTP.IdleTimeout,
-		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelDebug),
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.Panel.Timeout)
+	defer cancel()
+	if panelVersion, err := client.Ping(ctx); err != nil {
+		log.Error("cannot reach the Remnawave panel; panel-backed placeholders will not resolve until it recovers",
+			"panel", cfg.Panel.URL.String(),
+			"error", err,
+		)
+	} else {
+		log.Info("connected to Remnawave panel", "panel", cfg.Panel.URL.String(), "panel_version", panelVersion)
 	}
+	return panel.NewCache(client, cfg.Cache.TTL, cfg.Cache.NegativeTTL, cfg.Cache.MaxEntries)
+}
 
-	var healthServer *http.Server
-	if cfg.HTTP.HealthAddr != "" {
-		healthServer = &http.Server{
-			Addr:              cfg.HTTP.HealthAddr,
-			Handler:           healthHandler(cfg.Upstream.URL.Host),
-			ReadHeaderTimeout: 5 * time.Second,
-			ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelDebug),
-		}
-	}
-
+func serve(log *slog.Logger, shutdownTimeout time.Duration, servers ...*http.Server) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	errCh := make(chan error, 2)
-	go func() {
-		log.Info("listening", "addr", cfg.HTTP.Addr)
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- fmt.Errorf("http server: %w", err)
-		}
-	}()
-	if healthServer != nil {
+	errCh := make(chan error, len(servers))
+	for _, srv := range servers {
 		go func() {
-			log.Info("health endpoint listening", "addr", cfg.HTTP.HealthAddr)
-			if err := healthServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				errCh <- fmt.Errorf("health server: %w", err)
+			log.Info("listening", "addr", srv.Addr)
+			if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				errCh <- fmt.Errorf("server %s: %w", srv.Addr, err)
 			}
 		}()
 	}
@@ -209,14 +204,18 @@ func run() error {
 		log.Info("shutdown signal received, draining connections")
 	}
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.HTTP.ShutdownTimeout)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 
-	if healthServer != nil {
-		_ = healthServer.Shutdown(shutdownCtx)
+	// Reverse order: health stops first, and the public server's error wins.
+	var firstErr error
+	for i := len(servers) - 1; i >= 0; i-- {
+		if err := servers[i].Shutdown(shutdownCtx); err != nil {
+			firstErr = fmt.Errorf("graceful shutdown: %w", err)
+		}
 	}
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		return fmt.Errorf("graceful shutdown: %w", err)
+	if firstErr != nil {
+		return firstErr
 	}
 	log.Info("stopped")
 	return nil
@@ -274,11 +273,6 @@ func runHealthcheck() int {
 		return 1
 	}
 	return 0
-}
-
-func forceHTTPS() bool {
-	v := os.Getenv("UPSTREAM_FORCE_HTTPS")
-	return v == "1" || v == "true" || v == "TRUE" || v == "True"
 }
 
 func orNone(s string) string {

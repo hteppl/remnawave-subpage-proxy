@@ -13,8 +13,6 @@ import (
 
 const noticeName = `⚠️ Invalid User-Agent #1 "quoted": reset it`
 
-// Each placeholder must read back in its own format, carry the name
-// unmangled, and be recognised as that format again.
 func TestPlaceholderRoundTrips(t *testing.T) {
 	t.Run("links", func(t *testing.T) {
 		body := Placeholder(FormatLinks, noticeName)
@@ -81,8 +79,7 @@ func TestPlaceholderRoundTrips(t *testing.T) {
 	})
 }
 
-// Several names give several hosts, in order, with blank and repeated ones
-// dropped so sing-box and Clash accept the profile.
+// Repeated names must be dropped, or sing-box and Clash refuse the profile.
 func TestPlaceholderSplitsIntoHosts(t *testing.T) {
 	names := []string{"⚠️ Line one", "", "Line two", "Line one  ", "⚠️ Line one", "Line three"}
 	want := []string{"⚠️ Line one", "Line two", "Line one", "Line three"}
@@ -120,7 +117,6 @@ func TestPlaceholderSplitsIntoHosts(t *testing.T) {
 	}
 }
 
-// No placeholder may point at a reachable server.
 func TestPlaceholderPointsNowhere(t *testing.T) {
 	server := regexp.MustCompile(`0\.0\.0\.0`)
 	for _, f := range []Format{FormatXray, FormatSingbox, FormatClash} {

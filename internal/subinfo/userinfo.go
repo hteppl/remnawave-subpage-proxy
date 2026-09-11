@@ -7,8 +7,7 @@ import (
 
 const UserInfoHeader = "subscription-userinfo"
 
-// UserInfo is the parsed header. Fields are -1 when absent, which a zero total
-// is not: that means unlimited.
+// UserInfo fields are -1 when absent; a zero total means unlimited.
 type UserInfo struct {
 	Upload   int64
 	Download int64
@@ -29,8 +28,7 @@ func (u UserInfo) Used() int64 {
 	}
 }
 
-// ParseUserInfo reads "upload=0; download=0; total=0; expire=0", reporting
-// false when no field was usable. Costs no panel call.
+// ParseUserInfo reports false when no field was usable.
 func ParseUserInfo(header string) (UserInfo, bool) {
 	info := UserInfo{Upload: -1, Download: -1, Total: -1, Expire: -1}
 	if strings.TrimSpace(header) == "" {
@@ -61,8 +59,7 @@ func ParseUserInfo(header string) (UserInfo, bool) {
 	return info, any
 }
 
-// ForceUnlimitedTotal sets total=0, the encoding for an unlimited plan. Every
-// other field is preserved.
+// ForceUnlimitedTotal sets total=0, the encoding for an unlimited plan, preserving other fields.
 func ForceUnlimitedTotal(header string) string {
 	if strings.TrimSpace(header) == "" {
 		return "total=0"

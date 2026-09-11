@@ -19,16 +19,13 @@ import (
 
 var ErrNotFound = errors.New("subscription not found")
 
-// shortUUIDPattern guards a value that arrives from the request path on calls
-// carrying the panel API token: url.JoinPath resolves ".." instead of escaping
-// it, which would walk out of /api/sub/ as an authenticated caller.
+// shortUUIDPattern is required because url.JoinPath resolves "..", which would escape /api/sub/ with the API token.
 var shortUUIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
 // realIPHeader matches REMNAWAVE_REAL_IP_HEADER in @remnawave/backend-contract.
 const realIPHeader = "x-remnawave-real-ip"
 
-// User mirrors response.user of GET /api/sub/{shortUuid}/info. Byte counters
-// are strings because they can exceed 2^53 in JSON.
+// User byte counters are strings because they can exceed 2^53 in JSON.
 type User struct {
 	ShortUUID                string `json:"shortUuid"`
 	Username                 string `json:"username"`
@@ -89,7 +86,7 @@ type Options struct {
 	CloudflareSecret string
 }
 
-// Client is a minimal, concurrency-safe Remnawave panel API client.
+// Client is safe for concurrent use.
 type Client struct {
 	base   *url.URL
 	http   *http.Client
@@ -124,8 +121,7 @@ func New(opts Options) *Client {
 		common.Set("CF-Access-Client-Id", opts.CloudflareID)
 		common.Set("CF-Access-Client-Secret", opts.CloudflareSecret)
 	}
-	// The panel refuses some routes on plain HTTP unless it believes it sits
-	// behind a TLS-terminating hop.
+	// The panel refuses some routes on plain HTTP unless it believes a TLS hop sits in front.
 	if opts.BaseURL != nil && opts.BaseURL.Scheme == "http" {
 		common.Set("X-Forwarded-Proto", "https")
 		common.Set("X-Forwarded-For", "127.0.0.1")
@@ -138,8 +134,7 @@ func New(opts Options) *Client {
 	}
 }
 
-// SubscriptionInfo fetches GET /api/sub/{shortUuid}/info. An empty realIP keeps
-// the lookup out of the panel's request history.
+// SubscriptionInfo with an empty realIP keeps the lookup out of the panel's request history.
 func (c *Client) SubscriptionInfo(ctx context.Context, shortUUID, realIP string) (*Info, error) {
 	if !shortUUIDPattern.MatchString(shortUUID) {
 		return nil, ErrNotFound
@@ -187,7 +182,6 @@ func (c *Client) SubscriptionInfo(ctx context.Context, shortUUID, realIP string)
 	return &envelope.Response, nil
 }
 
-// Ping verifies panel reachability and credentials at startup.
 func (c *Client) Ping(ctx context.Context) (string, error) {
 	endpoint := c.base.JoinPath("api", "system", "metadata")
 

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 )
 
-// applySingbox shuffles node outbounds and reorders selector tag lists.
 func (s *Shuffler) applySingbox(body []byte) ([]byte, bool) {
 	root, err := parseObject(body)
 	if err != nil {
@@ -28,8 +27,7 @@ func (s *Shuffler) applySingbox(body []byte) ([]byte, bool) {
 	names := make([]string, len(outbounds))
 	for i, raw := range outbounds {
 		_ = json.Unmarshal(raw, &nodes[i])
-		// A tag only names a host when the outbound has a server; selectors
-		// and direct/block carry tags too, and must not be shuffled.
+		// Selectors and direct/block have tags too; only outbounds with a server are hosts.
 		if nodes[i].Server != "" {
 			names[i] = nodes[i].Tag
 		}

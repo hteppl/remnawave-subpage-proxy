@@ -112,8 +112,7 @@ func TestProxyRewritesAnnounceEndToEnd(t *testing.T) {
 	}
 }
 
-// Pins the wire format: clients see the spelling the upstream page sends, not
-// Go's canonical form.
+// Clients must see the upstream's header spelling, not Go's canonical form.
 func TestProxyEmitsLowercaseHeaders(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("announce", "hello")
@@ -249,8 +248,7 @@ func TestSubscriptionCacheServesWhenUpstreamDies(t *testing.T) {
 	if string(body) != "vless://live" {
 		t.Fatalf("warm-up body = %q", body)
 	}
-	// What gets cached is the finished response, so the announce is already
-	// substituted rather than replayed with raw placeholders.
+	// The finished response is cached, so the announce is already substituted.
 	if got := warm.Header.Get("announce"); got != "Used 10.00 GB of 100.00 GB" {
 		t.Fatalf("warm-up announce = %q", got)
 	}
@@ -495,9 +493,7 @@ func (f fetcherFunc) SubscriptionInfo(context.Context, string, string) (*panel.I
 	return nil, panel.ErrNotFound
 }
 
-// announceOf reads the header straight off the map. The proxy writes response
-// headers lowercase, and http.Header.Get canonicalises the name it looks up, so
-// a recorder-based test would never find them.
+// The proxy writes headers lowercase and http.Header.Get canonicalises, so read the map directly.
 func announceOf(h http.Header) string {
 	if values, ok := h["announce"]; ok && len(values) > 0 {
 		return values[0]
@@ -505,10 +501,46 @@ func announceOf(h http.Header) string {
 	return h.Get("announce")
 }
 
-// The page drops connections on purpose for anything it will not serve, so a
-// scanner sweep must not fill the log with warnings.
+// The warning must name the status the upstream actually sent, not the cached
+// one that replaced it.
+func TestCacheReplayLogsTheUpstreamStatus(t *testing.T) {
+	fail := false
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if fail {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		_, _ = w.Write([]byte("vless://live"))
+	}))
+	defer upstream.Close()
+
+	var logged bytes.Buffer
+	target, _ := url.Parse(upstream.URL)
+	resolver, _ := realip.Parse("1")
+	front := httptest.NewServer(New(Options{
+		Upstream: target,
+		Timeout:  2 * time.Second,
+		Engine:   testEngine(t, nil),
+		RealIP:   resolver,
+		SubCache: subcache.New(time.Hour, 1<<20, 1<<20),
+		Logger:   slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelWarn})),
+	}))
+	defer front.Close()
+
+	_ = get(t, front.Client(), front.URL+"/aBcDeF123", "Happ/1.0").Body.Close()
+	fail = true
+	_ = get(t, front.Client(), front.URL+"/aBcDeF123", "Happ/1.0").Body.Close()
+	// Close waits for the handler, so the log is complete.
+	front.Close()
+
+	if !strings.Contains(logged.String(), "upstream_status=502") {
+		t.Errorf("want the upstream's 502 in the log:\n%s", logged.String())
+	}
+}
+
+// The page drops connections on purpose, so a scanner sweep must not fill the log with warnings.
 func TestUpstreamDropIsLoggedAtDebug(t *testing.T) {
-	// An upstream that accepts and closes without responding.
+	// Read the request before closing, as the page's socket.destroy() does; closing first would send a reset.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -520,6 +552,7 @@ func TestUpstreamDropIsLoggedAtDebug(t *testing.T) {
 			if err != nil {
 				return
 			}
+			_, _ = http.ReadRequest(bufio.NewReader(conn))
 			_ = conn.Close()
 		}
 	}()
@@ -536,11 +569,11 @@ func TestUpstreamDropIsLoggedAtDebug(t *testing.T) {
 	})
 
 	front := httptest.NewServer(handler)
-	defer front.Close()
-
 	if _, err := front.Client().Get(front.URL + "/.env"); err == nil {
 		t.Fatal("expected the connection to be dropped")
 	}
+	// Close waits for the handler, so the log is complete.
+	front.Close()
 	if strings.Contains(logged.String(), "upstream request failed") {
 		t.Errorf("a deliberate drop should not warn:\n%s", logged.String())
 	}
@@ -566,7 +599,6 @@ func newProxyWithBlocker(t *testing.T, upstreamURL string, b *Blocker) *Proxy {
 	})
 }
 
-// A proxy with every stage off must still relay faithfully.
 func TestBareRelayForwardsWithoutRewriteStages(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("announce", "Used {TRAFFIC_USED}")

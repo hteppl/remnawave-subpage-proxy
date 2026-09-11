@@ -60,8 +60,6 @@ func TestPermutationKeepsGroupsInTheirSlots(t *testing.T) {
 	}
 }
 
-// A group's hosts land on exactly the positions that group already held, in
-// some other order; everything else keeps its slot.
 func TestGroupHostsStayOnTheirOwnPositions(t *testing.T) {
 	s := New([]*regexp.Regexp{regexp.MustCompile(`^RU`)})
 	names := []string{"RU 1", "RU 2", "DE 1", "RU 3", "FI 1"} // slots 0, 1, 3

@@ -290,8 +290,7 @@ func TestNoShortUUIDIsANoop(t *testing.T) {
 	}
 }
 
-// Marzban legacy links carry an opaque token instead of a short UUID; the
-// response header still has the counters.
+// Marzban legacy links carry an opaque token instead of a short UUID.
 func TestMarzbanLegacyLinkStillResolvesTraffic(t *testing.T) {
 	fetcher := &stubFetcher{}
 	engine := New(Options{File: baseFile(), Fetcher: fetcher, Logger: quietLogger()})
@@ -326,8 +325,7 @@ func TestForceUnlimitedRewritesOnlyTheHeader(t *testing.T) {
 	if got := h.Get("subscription-userinfo"); got != want {
 		t.Errorf("subscription-userinfo = %q, want %q", got, want)
 	}
-	// Placeholders keep reporting the real quota, so an announce can still
-	// state it.
+	// Placeholders keep the real quota so an announce can still state it.
 	if got := h.Get("announce"); got != "10.00 GB of 100.00 GB" {
 		t.Errorf("announce = %q, want the real limit", got)
 	}
@@ -422,7 +420,6 @@ func TestHasTrafficLimitCondition(t *testing.T) {
 	})
 }
 
-// The quota is in the response header, so the condition alone costs no request.
 func TestHasTrafficLimitUsesHeaderWithoutPanel(t *testing.T) {
 	file := baseFile()
 	file.Template.ScanAllHeaders = false
@@ -446,7 +443,6 @@ func TestHasTrafficLimitUsesHeaderWithoutPanel(t *testing.T) {
 	}
 }
 
-// Without the header the quota can only come from the panel.
 func TestHasTrafficLimitFallsBackToPanel(t *testing.T) {
 	file := baseFile()
 	file.Template.ScanAllHeaders = false
@@ -473,8 +469,6 @@ func TestHasTrafficLimitFallsBackToPanel(t *testing.T) {
 	}
 }
 
-// force_unlimited only rewrites the header; conditions and placeholders both
-// keep seeing the real quota.
 func TestHasTrafficLimitIgnoresForceUnlimited(t *testing.T) {
 	file := baseFile()
 	file.Template.ScanAllHeaders = false
@@ -504,7 +498,6 @@ func TestHasTrafficLimitIgnoresForceUnlimited(t *testing.T) {
 	}
 }
 
-// Several rules may target one header; the first whose conditions hold wins.
 func TestFirstMatchingRuleWinsPerHeader(t *testing.T) {
 	file := baseFile()
 	file.Template.ScanAllHeaders = false
@@ -571,7 +564,6 @@ func TestOriginalValue(t *testing.T) {
 		}
 	})
 
-	// The panel's own placeholders have to work inside the embedded text.
 	t.Run("resolves placeholders inside the original", func(t *testing.T) {
 		file := baseFile()
 		file.Headers = []config.HeaderRule{{
@@ -590,7 +582,6 @@ func TestOriginalValue(t *testing.T) {
 		}
 	})
 
-	// A self-reference must not recurse.
 	t.Run("original referencing itself is inserted once", func(t *testing.T) {
 		file := baseFile()
 		file.Headers = []config.HeaderRule{{
@@ -628,8 +619,6 @@ func TestOriginalValue(t *testing.T) {
 	})
 }
 
-// A panel-backed placeholder living inside the original must still be resolved,
-// which means it has to be counted when deciding whether to call the panel.
 func TestOriginalValueTriggersPanelLookup(t *testing.T) {
 	file := baseFile()
 	file.Headers = []config.HeaderRule{{
@@ -655,7 +644,6 @@ func TestOriginalValueTriggersPanelLookup(t *testing.T) {
 	}
 }
 
-// A template that discards the original must not pay for its placeholders.
 func TestUnusedOriginalDoesNotTriggerPanelLookup(t *testing.T) {
 	file := baseFile()
 	file.Headers = []config.HeaderRule{{

@@ -22,7 +22,6 @@ const (
 	OriginPanel
 )
 
-// Catalog is the full set of built-in placeholders.
 var Catalog = map[string]Origin{
 	"TRAFFIC_USED":            OriginTraffic,
 	"TRAFFIC_USED_BYTES":      OriginTraffic,
@@ -97,14 +96,12 @@ func NewResolver(f config.File) *Resolver {
 	}
 }
 
-// Limit reports the traffic allowance in bytes and whether it could be
-// determined at all. Zero means unlimited.
+// Limit reports the traffic allowance in bytes; zero means unlimited.
 func (r *Resolver) Limit(src Source) (int64, bool) {
 	_, limit, ok := r.trafficCounters(src)
 	return limit, ok && limit >= 0
 }
 
-// NeedsPanel reports whether any name still requires the panel API.
 func (r *Resolver) NeedsPanel(names []string, haveUserInfo bool) bool {
 	for _, name := range names {
 		if _, isCustom := r.custom[name]; isCustom {
@@ -131,56 +128,67 @@ func (r *Resolver) Lookup(src Source) func(string) (string, bool) {
 	}
 }
 
+// resolve picks the source by Catalog origin; names outside the Catalog have no value.
 func (r *Resolver) resolve(name string, src Source) (string, bool) {
+	origin, known := Catalog[name]
+	switch {
+	case !known:
+		return "", false
+	case origin == OriginPanel:
+		return r.resolvePanel(name, src.Panel)
+	case origin == OriginTraffic:
+		return r.resolveTraffic(name, src)
+	default:
+		return r.resolveLocal(name, src)
+	}
+}
+
+// ORIGINAL_VALUE is answered by the engine per header, so it has no value here.
+func (r *Resolver) resolveLocal(name string, src Source) (string, bool) {
 	switch name {
 	case "SHORT_UUID":
-		return src.ShortUUID, src.ShortUUID != ""
+		return nonEmpty(src.ShortUUID)
 	case "CLIENT_TYPE":
-		return src.ClientType, src.ClientType != ""
+		return nonEmpty(src.ClientType)
 	case "USER_AGENT":
-		return src.UserAgent, src.UserAgent != ""
+		return nonEmpty(src.UserAgent)
 	case "CLIENT_IP":
-		return src.ClientIP, src.ClientIP != ""
+		return nonEmpty(src.ClientIP)
 	case "SUBSCRIPTION_URL":
-		return src.SubscriptionURL, src.SubscriptionURL != ""
+		return nonEmpty(src.SubscriptionURL)
 	case "NOW":
-		now := r.now().In(r.datetime.Location())
-		return now.Format(r.datetime.Layout + " " + r.datetime.TimeLayout), true
+		return r.format(r.now(), r.fullLayout()), true
 	case "DATE":
-		return r.now().In(r.datetime.Location()).Format(r.datetime.Layout), true
+		return r.format(r.now(), r.datetime.Layout), true
 	case "TIME":
-		return r.now().In(r.datetime.Location()).Format(r.datetime.TimeLayout), true
-
-	case "USERNAME":
-		if src.Panel == nil {
-			return "", false
-		}
-		return src.Panel.User.Username, src.Panel.User.Username != ""
-	case "USER_STATUS":
-		if src.Panel == nil {
-			return "", false
-		}
-		return src.Panel.User.UserStatus, src.Panel.User.UserStatus != ""
-	case "IS_ACTIVE":
-		if src.Panel == nil {
-			return "", false
-		}
-		return strconv.FormatBool(src.Panel.User.IsActive), true
-	case "TRAFFIC_LIMIT_STRATEGY":
-		if src.Panel == nil {
-			return "", false
-		}
-		return src.Panel.User.TrafficLimitStrategy, src.Panel.User.TrafficLimitStrategy != ""
-	case "LIFETIME_TRAFFIC_USED":
-		if src.Panel == nil {
-			return "", false
-		}
-		return r.bytes(src.Panel.User.LifetimeUsedBytes())
+		return r.format(r.now(), r.datetime.TimeLayout), true
 	}
+	return "", false
+}
 
+func (r *Resolver) resolvePanel(name string, info *panel.Info) (string, bool) {
+	if info == nil {
+		return "", false
+	}
+	u := info.User
+	switch name {
+	case "USERNAME":
+		return nonEmpty(u.Username)
+	case "USER_STATUS":
+		return nonEmpty(u.UserStatus)
+	case "IS_ACTIVE":
+		return strconv.FormatBool(u.IsActive), true
+	case "TRAFFIC_LIMIT_STRATEGY":
+		return nonEmpty(u.TrafficLimitStrategy)
+	case "LIFETIME_TRAFFIC_USED":
+		return r.bytes(u.LifetimeUsedBytes())
+	}
+	return "", false
+}
+
+func (r *Resolver) resolveTraffic(name string, src Source) (string, bool) {
 	used, limit, ok := r.trafficCounters(src)
 	if !ok {
-		// Fall through to expiry, which may still be answerable.
 		used, limit = -1, -1
 	}
 
@@ -227,37 +235,34 @@ func (r *Resolver) resolve(name string, src Source) (string, bool) {
 			return "0", true
 		}
 		return r.rawBytes(available(used, limit))
-	case "TRAFFIC_USED_PERCENT":
+	case "TRAFFIC_USED_PERCENT", "TRAFFIC_LEFT_PERCENT", "PROGRESS_BAR":
 		pct, ok := percentUsed(used, limit)
-		if !ok {
+		switch {
+		case !ok:
 			return "", false
+		case name == "TRAFFIC_USED_PERCENT":
+			return strconv.Itoa(pct), true
+		case name == "TRAFFIC_LEFT_PERCENT":
+			return strconv.Itoa(100 - pct), true
+		default:
+			return r.progressBar(pct), true
 		}
-		return strconv.Itoa(pct), true
-	case "TRAFFIC_LEFT_PERCENT":
-		pct, ok := percentUsed(used, limit)
-		if !ok {
+	case "TRAFFIC_UPLOAD", "TRAFFIC_DOWNLOAD":
+		switch {
+		case src.UserInfo == nil:
 			return "", false
+		case name == "TRAFFIC_UPLOAD":
+			return r.bytes(src.UserInfo.Upload)
+		default:
+			return r.bytes(src.UserInfo.Download)
 		}
-		return strconv.Itoa(100 - pct), true
-	case "PROGRESS_BAR":
-		pct, ok := percentUsed(used, limit)
-		if !ok {
-			return "", false
-		}
-		return r.progressBar(pct), true
-	case "TRAFFIC_UPLOAD":
-		if src.UserInfo == nil {
-			return "", false
-		}
-		return r.bytes(src.UserInfo.Upload)
-	case "TRAFFIC_DOWNLOAD":
-		if src.UserInfo == nil {
-			return "", false
-		}
-		return r.bytes(src.UserInfo.Download)
 	}
+	return r.resolveExpiry(name, src)
+}
 
+func (r *Resolver) resolveExpiry(name string, src Source) (string, bool) {
 	expiry, hasExpiry := r.expiry(src)
+	var layout string
 	switch name {
 	case "DAYS_LEFT":
 		if src.Panel != nil {
@@ -267,33 +272,39 @@ func (r *Resolver) resolve(name string, src Source) (string, bool) {
 			return "", false
 		}
 		return strconv.Itoa(daysUntil(r.now(), expiry)), true
-	case "EXPIRES_AT":
-		if !hasExpiry {
-			return r.datetime.Never, true
-		}
-		return expiry.In(r.datetime.Location()).Format(r.datetime.Layout + " " + r.datetime.TimeLayout), true
-	case "EXPIRES_AT_DATE":
-		if !hasExpiry {
-			return r.datetime.Never, true
-		}
-		return expiry.In(r.datetime.Location()).Format(r.datetime.Layout), true
-	case "EXPIRES_AT_TIME":
-		if !hasExpiry {
-			return r.datetime.Never, true
-		}
-		return expiry.In(r.datetime.Location()).Format(r.datetime.TimeLayout), true
 	case "EXPIRES_AT_UNIX":
 		if !hasExpiry {
 			return "0", true
 		}
 		return strconv.FormatInt(expiry.Unix(), 10), true
+	case "EXPIRES_AT":
+		layout = r.fullLayout()
+	case "EXPIRES_AT_DATE":
+		layout = r.datetime.Layout
+	case "EXPIRES_AT_TIME":
+		layout = r.datetime.TimeLayout
+	default:
+		return "", false
 	}
-
-	return "", false
+	if !hasExpiry {
+		return r.datetime.Never, true
+	}
+	return r.format(expiry, layout), true
 }
 
-// trafficCounters prefers the response header: consistent with the payload the
-// client just received, and free.
+func (r *Resolver) format(t time.Time, layout string) string {
+	return t.In(r.datetime.Location()).Format(layout)
+}
+
+func (r *Resolver) fullLayout() string {
+	return r.datetime.Layout + " " + r.datetime.TimeLayout
+}
+
+func nonEmpty(s string) (string, bool) {
+	return s, s != ""
+}
+
+// trafficCounters prefers the response header: it matches what the client received and is free.
 func (r *Resolver) trafficCounters(src Source) (used, limit int64, ok bool) {
 	used, limit = -1, -1
 
@@ -402,7 +413,6 @@ func unitsOf(f config.TrafficFormat) ([]string, int64) {
 	return units, base
 }
 
-// unitIndex picks the largest unit n still fits into.
 func unitIndex(n, base int64, maxIdx int) int {
 	value, idx := float64(n), 0
 	for value >= float64(base) && idx < maxIdx {
@@ -412,7 +422,6 @@ func unitIndex(n, base int64, maxIdx int) int {
 	return idx
 }
 
-// formatScaled renders n in the unit at idx, without the unit itself.
 func formatScaled(n int64, idx int, base int64, decimals int) string {
 	if idx == 0 {
 		return strconv.FormatInt(n, 10)
@@ -420,8 +429,7 @@ func formatScaled(n int64, idx int, base int64, decimals int) string {
 	return strconv.FormatFloat(float64(n)/math.Pow(float64(base), float64(idx)), 'f', decimals, 64)
 }
 
-// limitScale is the unit both sides of "X of Y" should share. It follows the
-// limit, falling back to the used value when there is no limit to follow.
+// limitScale is the unit shared by both sides of "X of Y", following the limit when there is one.
 func (r *Resolver) limitScale(used, limit int64) int {
 	units, base := unitsOf(r.traffic)
 	n := limit

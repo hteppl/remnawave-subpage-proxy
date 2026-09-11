@@ -18,8 +18,7 @@ var ClientTypes = map[string]struct{}{
 // /assets/.app-config-v2.json — a dotted name that must stay reachable.
 const assetsDir = "assets"
 
-// reservedSegments are first segments the page owns, so none of them can be a
-// short UUID. This is the one place they are named; block.go shares it.
+// reservedSegments are first segments the page owns, so none can be a short UUID; block.go shares it.
 var reservedSegments = map[string]struct{}{
 	assetsDir: {}, "api": {}, "internal": {}, "favicon": {}, "robots": {},
 }
@@ -53,8 +52,7 @@ func ParseRoute(path, prefix string) Route {
 	return route
 }
 
-// plausibleShortUUID rules out the other paths the page serves: short UUIDs are
-// alphanumeric, so a dot (favicon.ico) or a reserved segment disqualifies.
+// Short UUIDs are alphanumeric, so a dot (favicon.ico) or a reserved segment disqualifies.
 func plausibleShortUUID(segment string) bool {
 	if segment == "" || len(segment) > 128 || strings.Contains(segment, ".") {
 		return false
@@ -63,10 +61,7 @@ func plausibleShortUUID(segment string) bool {
 	return !reserved
 }
 
-// stripPrefix removes CUSTOM_SUB_PREFIX from segments, whole segments at a
-// time. Both the router and the blocker call it, so neither can read a
-// prefixed path the other way; it allocates nothing, so the prefix costs the
-// same whether or not it is configured.
+// Shared by router and blocker so neither reads a prefixed path differently.
 func stripPrefix(segments []string, prefix string) ([]string, bool) {
 	for prefix != "" {
 		var want string
@@ -82,8 +77,7 @@ func stripPrefix(segments []string, prefix string) ([]string, bool) {
 	return segments, true
 }
 
-// splitPath is the one path splitter both the router and the blocker use, so
-// they always see the same segments. One allocation, none for an empty path.
+// Shared by router and blocker so they always see the same segments.
 func splitPath(path string) []string {
 	path = strings.Trim(path, "/")
 	if path == "" {

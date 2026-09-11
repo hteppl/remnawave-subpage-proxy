@@ -25,8 +25,7 @@ func (e *Entry) size() int64 {
 	return n
 }
 
-// Cache is a fallback, not a read-through cache: nothing reads from it until a
-// request to the upstream has failed.
+// Cache is a fallback, not a read-through cache: it is read only after the upstream fails.
 type Cache struct {
 	ttl      time.Duration
 	maxBytes int64
@@ -52,9 +51,7 @@ func New(ttl time.Duration, maxBytes, maxBody int64) *Cache {
 // MaxBody is the largest body worth keeping; bigger ones stream through.
 func (c *Cache) MaxBody() int64 { return c.maxBody }
 
-// Key identifies one variant of a response. Remnawave varies the payload by
-// client; Accept-Encoding counts too, or a gzipped body could be replayed to a
-// client that never asked for gzip.
+// Key includes Accept-Encoding so a gzipped body is never replayed to a client that did not ask for gzip.
 func Key(shortUUID, clientType, userAgent, acceptEncoding string) string {
 	var b strings.Builder
 	b.Grow(len(shortUUID) + len(clientType) + len(userAgent) + len(acceptEncoding) + 3)

@@ -69,8 +69,7 @@ func TestSubscriptionInfoEscapesShortUUID(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	// These requests carry the panel's admin API token, so an untrusted short
-	// UUID must never escape its own path segment.
+	// These requests carry the admin API token, so a short UUID must never escape its path segment.
 	traversals := []string{
 		"../../system/configuration",
 		"..%2f..%2fsystem%2fconfiguration",
@@ -89,7 +88,6 @@ func TestSubscriptionInfoEscapesShortUUID(t *testing.T) {
 		}
 	}
 
-	// A legitimate nanoid still works.
 	if _, err := newTestClient(t, srv).SubscriptionInfo(context.Background(), "aBcDeF-123_x", ""); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unexpected error for a valid short UUID: %v", err)
 	}

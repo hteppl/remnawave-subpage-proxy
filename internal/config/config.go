@@ -23,6 +23,8 @@ type Upstream struct {
 	SubPrefix string
 	// TrustProxy keeps the reported client IP from being spoofed via XFF.
 	TrustProxy string
+	// ForceHTTPS claims TLS termination to an upstream that demands it.
+	ForceHTTPS bool
 }
 
 type Panel struct {
@@ -49,8 +51,7 @@ type Cache struct {
 // SubCache trades a stale payload for availability, so it is off by default.
 type SubCache struct {
 	Enabled bool
-	// TTL is how long a stored response stays usable as a fallback.
-	TTL time.Duration
+	TTL     time.Duration
 	// MaxBytes budgets the cache; MaxBody caps one response.
 	MaxBytes int64
 	MaxBody  int64
@@ -93,6 +94,7 @@ func Load() (*Config, error) {
 			Timeout:    e.duration("UPSTREAM_TIMEOUT", 60*time.Second),
 			SubPrefix:  strings.Trim(envString("CUSTOM_SUB_PREFIX", ""), "/"),
 			TrustProxy: envString("TRUST_PROXY", "1"),
+			ForceHTTPS: e.boolVal("UPSTREAM_FORCE_HTTPS", false),
 		},
 		Panel: Panel{
 			Timeout:          e.duration("PANEL_TIMEOUT", 10*time.Second),

@@ -4,6 +4,8 @@ import (
 	"encoding/base64"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/hteppl/remnawave-subpage-proxy/internal/b64"
 )
 
 // Form records the wire encoding, so a rewrite can keep the same shape.
@@ -18,15 +20,7 @@ const (
 
 const Base64Prefix = "base64:"
 
-var encodings = []*base64.Encoding{
-	base64.StdEncoding,
-	base64.RawStdEncoding,
-	base64.URLEncoding,
-	base64.RawURLEncoding,
-}
-
-// DecodeBase64 refuses anything not decoding to printable UTF-8: short ASCII
-// words are frequently valid base64 and must not be mangled.
+// DecodeBase64 requires printable UTF-8 output, since short ASCII words are often valid base64.
 func DecodeBase64(value string) (text string, form Form, ok bool) {
 	if rest, found := strings.CutPrefix(value, Base64Prefix); found {
 		decoded, ok := decodeAny(strings.TrimSpace(rest))
@@ -49,26 +43,15 @@ func decodeAny(value string) (string, bool) {
 	if len(value) < 4 {
 		return "", false
 	}
-	for _, enc := range encodings {
-		raw, err := enc.DecodeString(value)
-		if err != nil {
-			continue
-		}
-		if !utf8.Valid(raw) {
-			continue
-		}
-		decoded := string(raw)
-		if decoded == "" || !isPrintable(decoded) {
-			continue
-		}
-		return decoded, true
-	}
-	return "", false
+	raw, _, ok := b64.Decode(value, isText)
+	return string(raw), ok
 }
 
-// isPrintable rejects control characters: the input was not encoded text.
-func isPrintable(s string) bool {
-	for _, r := range s {
+func isText(raw []byte) bool {
+	if len(raw) == 0 || !utf8.Valid(raw) {
+		return false
+	}
+	for _, r := range string(raw) {
 		if r < 0x20 && r != '\t' && r != '\n' && r != '\r' {
 			return false
 		}

@@ -34,7 +34,7 @@ type Options struct {
 	Logger        *slog.Logger
 }
 
-// Engine rewrites response headers. Safe for concurrent use.
+// Engine is safe for concurrent use.
 type Engine struct {
 	rules          []config.HeaderRule
 	opts           config.TemplateOpts
@@ -84,25 +84,19 @@ type candidate struct {
 	hasOriginal bool
 }
 
-// originalValueName is answered per header, not per request, so the engine
-// layers it over the resolver's lookup.
+// originalValueName is answered per header by the engine, not by the resolver.
 const originalValueName = "ORIGINAL_VALUE"
 
 // Apply rewrites h in place, calling the panel only when something needs it.
 func (e *Engine) Apply(ctx context.Context, h http.Header, rq Request) {
-	var userInfo *subinfo.UserInfo
-	if parsed, ok := subinfo.ParseUserInfo(h.Get(subinfo.UserInfoHeader)); ok {
-		userInfo = &parsed
-	}
+	userInfo := userInfoFrom(h)
 
-	// The second case covers Marzban legacy links, where traffic placeholders
-	// resolve but panel-backed ones cannot.
+	// Marzban legacy links have no short UUID, yet traffic placeholders still resolve from the header.
 	if rq.ShortUUID == "" && userInfo == nil {
 		return
 	}
 
-	// Only the header is rewritten: force_unlimited hides the quota from the
-	// client's own traffic display, while placeholders keep reporting the truth.
+	// force_unlimited only rewrites the header; placeholders keep reporting the real quota.
 	if e.forceUnlimited && userInfo != nil {
 		h.Set(subinfo.UserInfoHeader, subinfo.ForceUnlimitedTotal(h.Get(subinfo.UserInfoHeader)))
 	}
@@ -124,16 +118,14 @@ func (e *Engine) Apply(ctx context.Context, h http.Header, rq Request) {
 		if !c.remove {
 			used := tmpl.Names(c.source)
 			names = append(names, used...)
-			// Placeholders the panel put inside the header are resolved too, so
-			// they have to be counted when deciding whether the panel is needed.
+			// Placeholders inside the original value count toward whether the panel is needed.
 			if c.hasOriginal && slices.Contains(used, originalValueName) {
 				names = append(names, tmpl.Names(c.original)...)
 			}
 		}
 	}
 
-	// The header carries the quota, so a limit condition only costs a panel
-	// request when it is absent.
+	// A limit condition needs the panel only when the header lacks the quota.
 	limitFromHeader := userInfo != nil && userInfo.Total >= 0
 
 	info := e.fetchInfo(ctx, rq, needsStatus || (needsLimit && !limitFromHeader) ||
@@ -143,8 +135,7 @@ func (e *Engine) Apply(ctx context.Context, h http.Header, rq Request) {
 	lookup := e.resolver.Lookup(source)
 	limit, limitKnown := e.resolver.Limit(source)
 
-	// Several rules may target one header, each with its own conditions; the
-	// first one whose conditions hold wins.
+	// Per header, the first rule whose conditions hold wins.
 	written := make(map[string]struct{}, len(candidates))
 	for _, c := range candidates {
 		key := http.CanonicalHeaderKey(c.name)
@@ -174,21 +165,14 @@ func (e *Engine) Apply(ctx context.Context, h http.Header, rq Request) {
 	}
 }
 
-// Render resolves one template against the response headers h, calling the
-// panel only when a placeholder in it needs to. It must see h before Apply,
-// which may already have hidden the quota for force_unlimited.
+// Render must see h before Apply, which may already have hidden the quota for force_unlimited.
 func (e *Engine) Render(ctx context.Context, h http.Header, rq Request, template string) string {
-	var userInfo *subinfo.UserInfo
-	if parsed, ok := subinfo.ParseUserInfo(h.Get(subinfo.UserInfoHeader)); ok {
-		userInfo = &parsed
-	}
+	userInfo := userInfoFrom(h)
 	info := e.fetchInfo(ctx, rq, e.resolver.NeedsPanel(tmpl.Names(template), userInfo != nil))
 	return tmpl.Render(template, e.resolver.Lookup(sourceFor(rq, userInfo, info)), e.unknown)
 }
 
-// fetchInfo asks the panel about the subscription when needed says so, or
-// always under PANEL_ALWAYS_FETCH. A failure yields nil: unresolved
-// placeholders are left as-is, not blanked.
+// fetchInfo returns nil on failure, so unresolved placeholders are left as-is, not blanked.
 func (e *Engine) fetchInfo(ctx context.Context, rq Request, needed bool) *panel.Info {
 	if e.fetcher == nil || rq.ShortUUID == "" || !(needed || e.alwaysFetch) {
 		return nil
@@ -207,6 +191,14 @@ func (e *Engine) fetchInfo(ctx context.Context, rq Request, needed bool) *panel.
 		e.log.Warn("subscription info lookup failed", "short_uuid", rq.ShortUUID, "error", err)
 	}
 	return nil
+}
+
+func userInfoFrom(h http.Header) *subinfo.UserInfo {
+	parsed, ok := subinfo.ParseUserInfo(h.Get(subinfo.UserInfoHeader))
+	if !ok {
+		return nil
+	}
+	return &parsed
 }
 
 func sourceFor(rq Request, userInfo *subinfo.UserInfo, info *panel.Info) subinfo.Source {
@@ -268,76 +260,42 @@ func (e *Engine) collect(h http.Header, rq Request) []candidate {
 	return candidates
 }
 
-// candidateFor decides whether a header needs rewriting, and in which form.
-// The original value is derived only for actual candidates.
 func (e *Engine) candidateFor(name, current string, present bool, rule *config.HeaderRule) (candidate, bool) {
 	encode := config.EncodeAuto
 	if rule != nil {
 		encode = rule.Encode
 	}
 
-	// A rule with an explicit template replaces the value outright.
-	if rule != nil && rule.Template != nil {
-		form := FormPlain
-		original, hasOriginal := "", false
-		if present {
-			decoded, detected, ok := DecodeBase64(current)
-			if ok && encode == config.EncodeAuto {
-				form = detected
-			}
-			original, hasOriginal = current, true
-			if ok && e.opts.DecodeBase64 {
-				original = decoded
+	c := candidate{name: name, rule: rule, present: present}
+	// text is the value as placeholders see it, unwrapped from base64 when decode_base64 allows.
+	text, form, unwrapped := current, FormPlain, false
+	if present {
+		if decoded, detected, ok := DecodeBase64(current); ok {
+			form = detected
+			if e.opts.DecodeBase64 {
+				text, unwrapped = decoded, true
 			}
 		}
-		return candidate{
-			name:        name,
-			source:      *rule.Template,
-			form:        overrideForm(form, encode),
-			rule:        rule,
-			present:     present,
-			original:    original,
-			hasOriginal: hasOriginal,
-		}, true
+		c.original, c.hasOriginal = text, true
 	}
 
-	if !present {
-		return candidate{}, false
-	}
-
-	// Base64 is only unwrapped when doing so reveals a placeholder, so opaque
-	// payloads are never touched.
-	if e.opts.DecodeBase64 {
-		if decoded, form, ok := DecodeBase64(current); ok && tmpl.Contains(decoded) {
-			return candidate{
-				name:        name,
-				source:      decoded,
-				form:        overrideForm(form, encode),
-				rule:        rule,
-				present:     true,
-				original:    decoded,
-				hasOriginal: true,
-			}, true
+	switch {
+	case rule != nil && rule.Template != nil:
+		c.source = *rule.Template
+	// Rewrite only on a placeholder, so an opaque payload, base64 or not, is never touched.
+	case present && tmpl.Contains(text):
+		c.source = text
+		if !unwrapped {
+			form = FormPlain
 		}
-	}
-
-	if !tmpl.Contains(current) {
+	default:
 		return candidate{}, false
 	}
-	return candidate{
-		name:        name,
-		source:      current,
-		form:        overrideForm(FormPlain, encode),
-		rule:        rule,
-		present:     true,
-		original:    current,
-		hasOriginal: true,
-	}, true
+	c.form = overrideForm(form, encode)
+	return c, true
 }
 
-// withOriginal adds {ORIGINAL_VALUE} for one header. The panel's own
-// placeholders inside it are resolved with the base lookup, which does not know
-// the name, so the substitution cannot recurse.
+// withOriginal resolves placeholders inside the original with the base lookup, so it cannot recurse.
 func (e *Engine) withOriginal(base func(string) (string, bool), c candidate) tmpl.Lookup {
 	return func(name string) (string, bool) {
 		if name != originalValueName {
@@ -387,8 +345,7 @@ func matchesStatus(rule *config.HeaderRule, info *panel.Info) bool {
 	return slices.Contains(rule.When.UserStatuses, strings.ToUpper(info.User.UserStatus))
 }
 
-// matchesTrafficLimit gates a rule on the plan having a finite quota. A zero
-// limit is unlimited; an undeterminable one skips the rule rather than guessing.
+// matchesTrafficLimit treats zero as unlimited and skips the rule when the limit is unknown.
 func matchesTrafficLimit(rule *config.HeaderRule, limit int64, known bool) bool {
 	if rule == nil || rule.When.HasTrafficLimit == nil {
 		return true

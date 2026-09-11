@@ -6,8 +6,7 @@ import (
 	"strings"
 )
 
-// Upper snake case keeps {NAME} from colliding with the JSON and Clash
-// payloads flowing through the same proxy.
+// Upper snake case keeps {NAME} from colliding with JSON and Clash payloads.
 var placeholderRe = regexp.MustCompile(`\{([A-Z][A-Z0-9_]*)((?:\|[^{}|]*)*)\}`)
 
 type Unknown int
@@ -17,14 +16,14 @@ const (
 	Blank
 )
 
-// Lookup's second result separates "unknown name" from "empty value".
+// Lookup resolves a name; its second result separates "unknown name" from
+// "empty value".
 type Lookup func(name string) (string, bool)
 
 func Contains(s string) bool {
 	return strings.IndexByte(s, '{') >= 0 && placeholderRe.MatchString(s)
 }
 
-// Names lists distinct placeholder names, to decide if the panel is needed.
 func Names(s string) []string {
 	if strings.IndexByte(s, '{') < 0 {
 		return nil
@@ -45,8 +44,7 @@ func Names(s string) []string {
 	return names
 }
 
-// Render substitutes every placeholder. Modifiers chain left to right:
-// {USERNAME|upper}, {TRAFFIC_LIMIT|default:unlimited}, {TEXT|truncate:200}.
+// Render applies modifiers left to right, e.g. {TRAFFIC_LIMIT|default:unlimited|upper}.
 func Render(s string, lookup Lookup, unknown Unknown) string {
 	if strings.IndexByte(s, '{') < 0 {
 		return s

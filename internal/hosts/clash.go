@@ -13,8 +13,7 @@ func looksLikeClash(body []byte) bool {
 	return clashProxiesKey.Match(body)
 }
 
-// applyClash shuffles the proxies list and reorders proxy-group names. The
-// node tree keeps comments and style intact.
+// applyClash edits the YAML node tree so comments and style survive.
 func (s *Shuffler) applyClash(body []byte) ([]byte, bool) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(body, &doc); err != nil || len(doc.Content) == 0 {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -24,20 +25,29 @@ const (
 )
 
 func (e *Encoding) UnmarshalYAML(node *yaml.Node) error {
+	return decodeEnum(node, e, "encode", EncodeAuto, EncodeNone, EncodeBase64, EncodeBase64Prefixed)
+}
+
+// decodeEnum is case-insensitive; a blank value takes allowed[0], the default.
+func decodeEnum[T ~string](node *yaml.Node, out *T, field string, allowed ...T) error {
 	var raw string
 	if err := node.Decode(&raw); err != nil {
 		return err
 	}
-	switch v := Encoding(strings.ToLower(strings.TrimSpace(raw))); v {
-	case EncodeAuto, EncodeNone, EncodeBase64, EncodeBase64Prefixed:
-		*e = v
-		return nil
-	case "":
-		*e = EncodeAuto
-		return nil
+	v := T(strings.ToLower(strings.TrimSpace(raw)))
+	switch {
+	case v == "":
+		*out = allowed[0]
+	case slices.Contains(allowed, v):
+		*out = v
 	default:
-		return fmt.Errorf("line %d: encode must be one of auto, none, base64, base64-prefixed, got %q", node.Line, raw)
+		names := make([]string, len(allowed))
+		for i, a := range allowed {
+			names[i] = string(a)
+		}
+		return fmt.Errorf("line %d: %s must be one of %s, got %q", node.Line, field, strings.Join(names, ", "), raw)
 	}
+	return nil
 }
 
 // UnknownPolicy decides what happens to a {PLACEHOLDER} with no known value.
@@ -49,20 +59,7 @@ const (
 )
 
 func (u *UnknownPolicy) UnmarshalYAML(node *yaml.Node) error {
-	var raw string
-	if err := node.Decode(&raw); err != nil {
-		return err
-	}
-	switch v := UnknownPolicy(strings.ToLower(strings.TrimSpace(raw))); v {
-	case UnknownKeep, UnknownBlank:
-		*u = v
-		return nil
-	case "":
-		*u = UnknownKeep
-		return nil
-	default:
-		return fmt.Errorf("line %d: template.unknown must be keep or blank, got %q", node.Line, raw)
-	}
+	return decodeEnum(node, u, "template.unknown", UnknownKeep, UnknownBlank)
 }
 
 type TrafficFormat struct {
@@ -70,9 +67,7 @@ type TrafficFormat struct {
 	BinaryUnits bool     `yaml:"binary_units"`
 	Unlimited   string   `yaml:"unlimited"`
 	Units       []string `yaml:"units"`
-	// ForceUnlimited sends subscription-userinfo with total=0, so the client's
-	// own traffic display shows no quota. Placeholders and conditions keep
-	// reporting the real one.
+	// ForceUnlimited sends total=0 to the client; placeholders and conditions still see the real quota.
 	ForceUnlimited bool `yaml:"force_unlimited"`
 }
 
@@ -105,8 +100,7 @@ type TemplateOpts struct {
 	Unknown UnknownPolicy `yaml:"unknown"`
 	// ScanAllHeaders covers an announce configured in the panel, unnamed here.
 	ScanAllHeaders bool `yaml:"scan_all_headers"`
-	// DecodeBase64 looks inside base64 values for placeholders.
-	DecodeBase64 bool `yaml:"decode_base64"`
+	DecodeBase64   bool `yaml:"decode_base64"`
 }
 
 type Condition struct {
@@ -122,8 +116,7 @@ type Condition struct {
 
 func (c Condition) UserAgentRegexp() *regexp.Regexp { return c.userAgentRe }
 
-// isEmpty reports a rule that matches every request, and therefore shadows any
-// later rule for the same header.
+// isEmpty reports a rule that matches every request, shadowing later rules for the header.
 func (c Condition) isEmpty() bool {
 	return len(c.ClientTypes) == 0 && len(c.UserStatuses) == 0 &&
 		strings.TrimSpace(c.UserAgent) == "" && c.Exists == nil && c.HasTrafficLimit == nil
@@ -138,166 +131,6 @@ type HeaderRule struct {
 	When     Condition `yaml:"when"`
 	// MaxLength truncates the rendered text in runes, before encoding.
 	MaxLength int `yaml:"max_length"`
-}
-
-// Block refuses obvious scanner probes at the proxy, so they never reach the
-// subscription page or the panel.
-type Block struct {
-	Enabled bool `yaml:"enabled"`
-	// Patterns are extra Go regular expressions matched against the path.
-	Patterns []string `yaml:"patterns"`
-}
-
-// CompileBlock parses the extra patterns of a Block. It is the only place a
-// pattern becomes a regexp, so the config loader and the proxy cannot disagree
-// about what one means. Every bad pattern is reported, not just the first.
-func CompileBlock(b Block) ([]*regexp.Regexp, error) {
-	var (
-		compiled []*regexp.Regexp
-		problems []error
-	)
-	for i, pattern := range b.Patterns {
-		re, err := regexp.Compile(pattern)
-		if err != nil {
-			problems = append(problems, fmt.Errorf("block.patterns[%d] is not a valid regexp: %w", i, err))
-			continue
-		}
-		compiled = append(compiled, re)
-	}
-	if len(problems) > 0 {
-		return nil, errors.Join(problems...)
-	}
-	return compiled, nil
-}
-
-// Hosts controls shuffling of the servers inside a subscription body.
-type Hosts struct {
-	// Shuffle is a list of regexps matched against the host name shown to
-	// the user (link fragment, vmess ps, remarks, sing-box tag, Clash proxy
-	// name). Each group is shuffled independently among its own positions;
-	// a host matching none stays put, one matching several joins the first.
-	Shuffle []string `yaml:"shuffle"`
-}
-
-// CompileHosts parses the shuffle patterns, reporting every bad one.
-func CompileHosts(h Hosts) ([]*regexp.Regexp, error) {
-	var (
-		compiled []*regexp.Regexp
-		problems []error
-	)
-	for i, pattern := range h.Shuffle {
-		pattern = strings.TrimSpace(pattern)
-		if pattern == "" {
-			problems = append(problems, fmt.Errorf("hosts.shuffle[%d] needs a name pattern", i))
-			continue
-		}
-		re, err := regexp.Compile(pattern)
-		if err != nil {
-			problems = append(problems, fmt.Errorf("hosts.shuffle[%d] is not a valid regexp: %w", i, err))
-			continue
-		}
-		compiled = append(compiled, re)
-	}
-	if len(problems) > 0 {
-		return nil, errors.Join(problems...)
-	}
-	return compiled, nil
-}
-
-// UserAgentAction is what happens to a subscription request whose User-Agent
-// matches a rule.
-type UserAgentAction string
-
-const (
-	// UserAgentNotice forwards the request and keeps the panel's headers, so
-	// the app still shows traffic and expiry, but swaps the hosts for
-	// placeholders named after the message.
-	UserAgentNotice UserAgentAction = "notice"
-	// UserAgentBlock answers at the proxy with the same placeholders, never
-	// forwarding the request, so the subscription page builds nothing.
-	UserAgentBlock UserAgentAction = "block"
-)
-
-func (a *UserAgentAction) UnmarshalYAML(node *yaml.Node) error {
-	var raw string
-	if err := node.Decode(&raw); err != nil {
-		return err
-	}
-	switch v := UserAgentAction(strings.ToLower(strings.TrimSpace(raw))); v {
-	case UserAgentNotice, UserAgentBlock:
-		*a = v
-		return nil
-	case "":
-		*a = UserAgentNotice
-		return nil
-	default:
-		return fmt.Errorf("line %d: user_agents action must be notice or block, got %q", node.Line, raw)
-	}
-}
-
-// UserAgentRule catches a User-Agent no real client sends: a subscription URL
-// pasted into the field, a whole JSON config, and the like.
-type UserAgentRule struct {
-	// Name identifies the rule in logs; the User-Agent itself is never logged,
-	// since a pasted one may hold a subscription link.
-	Name string `yaml:"name"`
-	// Pattern is a Go regexp matched against the whole User-Agent.
-	Pattern string          `yaml:"pattern"`
-	Action  UserAgentAction `yaml:"action"`
-	// Message is a template shown as the placeholder host's name; each line
-	// of a multi-line message becomes a host of its own. Required: a rule
-	// without one is disabled.
-	Message string `yaml:"message"`
-	// Announce also sends the message as the announce header.
-	Announce bool `yaml:"announce"`
-}
-
-type UserAgents struct {
-	// Rules are tried in order; the first match decides.
-	Rules []UserAgentRule `yaml:"rules"`
-}
-
-// CompiledUserAgentRule is a rule with its pattern parsed.
-type CompiledUserAgentRule struct {
-	UserAgentRule
-	Regexp *regexp.Regexp
-}
-
-// CompileUserAgents parses the rules and reports every bad pattern. A rule
-// without a message has nothing to tell the user, so it is left out and
-// named in disabled for the caller to warn about; there is no default text,
-// since any wording or language the proxy picked would be wrong for someone.
-func CompileUserAgents(u UserAgents) (compiled []CompiledUserAgentRule, disabled []string, err error) {
-	var problems []error
-	for i, rule := range u.Rules {
-		label := fmt.Sprintf("user_agents.rules[%d]", i)
-		if rule.Name = strings.TrimSpace(rule.Name); rule.Name != "" {
-			label += " (" + rule.Name + ")"
-		} else {
-			rule.Name = fmt.Sprintf("rule-%d", i)
-		}
-		if strings.TrimSpace(rule.Pattern) == "" {
-			problems = append(problems, fmt.Errorf("%s needs a pattern", label))
-			continue
-		}
-		re, err := regexp.Compile(rule.Pattern)
-		if err != nil {
-			problems = append(problems, fmt.Errorf("%s pattern is not a valid regexp: %w", label, err))
-			continue
-		}
-		if rule.Action == "" {
-			rule.Action = UserAgentNotice
-		}
-		if strings.TrimSpace(rule.Message) == "" {
-			disabled = append(disabled, label)
-			continue
-		}
-		compiled = append(compiled, CompiledUserAgentRule{UserAgentRule: rule, Regexp: re})
-	}
-	if len(problems) > 0 {
-		return nil, nil, errors.Join(problems...)
-	}
-	return compiled, disabled, nil
 }
 
 type File struct {
@@ -340,21 +173,11 @@ func defaultFile() File {
 	}
 }
 
-// unknownSection matches the yaml message for an unrecognised key at the top
-// level of the file, such as a whole section a newer version added. Only those
-// are skipped, so an old image still starts on a new config; the name is
-// matched loosely because a YAML key may contain spaces, and the type is built
-// from File itself so a rename cannot quietly stop the match.
-//
-// Nested keys are deliberately excluded. Inside a section the proxy already
-// knows, an unrecognised key is far more likely a typo — "templat" for
-// "template" — and skipping it would leave a header rule silently doing the
-// wrong thing in production.
+// unknownSection matches only top-level unknown keys (nested ones are likely typos and stay fatal);
+// the type comes from File so a rename cannot silently break the match.
 var unknownSection = regexp.MustCompile(
 	`^line \d+: field .+ not found in type ` + regexp.QuoteMeta(fmt.Sprintf("%T", File{})) + `$`)
 
-// splitUnknownFields separates the skippable "unknown section" complaints from
-// the real decode errors, returning the skipped keys and what remains fatal.
 func splitUnknownFields(err error) ([]string, error) {
 	var typeErr *yaml.TypeError
 	if !errors.As(err, &typeErr) {
@@ -374,8 +197,7 @@ func splitUnknownFields(err error) ([]string, error) {
 	return skipped, &yaml.TypeError{Errors: fatal}
 }
 
-// loadFile treats a missing file at the default path as "run on defaults". It
-// returns the keys it had to skip so the caller can log them.
+// loadFile treats a missing file at the default path as "run on defaults".
 func loadFile(path string, explicit bool) (File, []string, error) {
 	cfg := defaultFile()
 
@@ -400,8 +222,7 @@ func loadFile(path string, explicit bool) (File, []string, error) {
 	}
 
 	if err := cfg.validate(); err != nil {
-		// Naming the skipped keys here too: the caller drops them on error,
-		// and one of them may be what the operator expected to take effect.
+		// The caller drops skipped keys on error, and one may be what the operator expected to apply.
 		if len(skipped) > 0 {
 			return cfg, skipped, fmt.Errorf("config %s (ignored unknown keys: %s): %w",
 				path, strings.Join(skipped, "; "), err)
@@ -455,16 +276,12 @@ func (f *File) validate() error {
 		f.Template.Unknown = UnknownKeep
 	}
 
-	// errors.Join separates one message per bad pattern with a newline; keep
-	// them as separate problems so an operator sees every one.
-	if _, err := CompileBlock(f.Block); err != nil {
-		problems = append(problems, strings.Split(err.Error(), "\n")...)
-	}
-	if _, err := CompileHosts(f.Hosts); err != nil {
-		problems = append(problems, strings.Split(err.Error(), "\n")...)
-	}
-	if _, _, err := CompileUserAgents(f.UserAgents); err != nil {
-		problems = append(problems, strings.Split(err.Error(), "\n")...)
+	// Kept as separate problems so an operator sees every bad pattern at once.
+	_, blockErr := CompileBlock(f.Block)
+	_, hostsErr := CompileHosts(f.Hosts)
+	_, _, uaErr := CompileUserAgents(f.UserAgents)
+	for _, err := range []error{blockErr, hostsErr, uaErr} {
+		problems = append(problems, problemList(err)...)
 	}
 
 	for name := range f.Vars {
@@ -473,8 +290,7 @@ func (f *File) validate() error {
 		}
 	}
 
-	// Rules are matched top to bottom, so an unconditional rule makes every
-	// later rule for the same header dead code.
+	// Rules match top to bottom, so an unconditional rule makes later ones dead.
 	shadowed := make(map[string]int, len(f.Headers))
 
 	for i := range f.Headers {
@@ -501,13 +317,12 @@ func (f *File) validate() error {
 		if rule.MaxLength < 0 {
 			problems = append(problems, fmt.Sprintf("headers[%d] (%s) max_length must not be negative", i, rule.Name))
 		}
-		if ua := strings.TrimSpace(rule.When.UserAgent); ua != "" {
-			re, err := regexp.Compile(ua)
+		if strings.TrimSpace(rule.When.UserAgent) != "" {
+			re, err := compilePattern(rule.When.UserAgent)
 			if err != nil {
-				problems = append(problems, fmt.Sprintf("headers[%d] (%s) when.user_agent is not a valid regexp: %v", i, rule.Name, err))
-			} else {
-				rule.When.userAgentRe = re
+				problems = append(problems, fmt.Sprintf("headers[%d] (%s) when.user_agent %v", i, rule.Name, err))
 			}
+			rule.When.userAgentRe = re
 		}
 		for j, st := range rule.When.UserStatuses {
 			rule.When.UserStatuses[j] = strings.ToUpper(strings.TrimSpace(st))

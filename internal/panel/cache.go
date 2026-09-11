@@ -23,8 +23,7 @@ type call struct {
 	err  error
 }
 
-// Cache memoises info lookups and collapses concurrent ones for the same short
-// UUID. Clients poll on a fixed interval, so a short TTL removes most load.
+// Cache memoises info lookups per short UUID and collapses concurrent ones.
 type Cache struct {
 	fetcher     Fetcher
 	ttl         time.Duration

@@ -90,8 +90,7 @@ headers:
 	}
 }
 
-// A whole section this binary does not know must not stop it: a config written
-// for a newer version has to keep an older image running.
+// A config written for a newer version must keep an older image running.
 func TestLoadFileSkipsUnknownSections(t *testing.T) {
 	cfg, skipped, err := loadFile(writeConfig(t, `traffic:
   decimals: 3
@@ -118,8 +117,7 @@ brand_new_toggle: true
 	}
 }
 
-// A typo inside a section the proxy knows is a mistake, not a newer feature,
-// and must still stop startup rather than silently changing what a rule does.
+// A typo inside a known section must stop startup, not silently change a rule.
 func TestLoadFileRejectsUnknownKeysInsideKnownSections(t *testing.T) {
 	for name, body := range map[string]string{
 		"in a header rule": "headers:\n  - name: announce\n    templat: hi\n",
@@ -149,7 +147,6 @@ func TestLoadFileSkipsUnknownSectionsWithSpaces(t *testing.T) {
 	}
 }
 
-// Skipping unknown keys must not swallow a genuine mistake in a known one.
 func TestLoadFileStillRejectsBadValuesBesideUnknownKeys(t *testing.T) {
 	_, _, err := loadFile(writeConfig(t, "traffic:\n  decimals: nope\nfuture_key: 1\n"), true)
 	if err == nil {
@@ -195,16 +192,17 @@ func TestLoadFileUserAgentRules(t *testing.T) {
 
 func TestLoadFileRejectsBadInput(t *testing.T) {
 	tests := map[string]string{
-		"bad encode":         "headers:\n  - name: announce\n    encode: rot13\n",
-		"bad timezone":       "datetime:\n  timezone: Mars/Olympus\n",
-		"missing name":       "headers:\n  - template: hi\n",
-		"remove + template":  "headers:\n  - name: announce\n    remove: true\n    template: hi\n",
-		"bad user_agent":     "headers:\n  - name: announce\n    when:\n      user_agent: \"[\"\n",
-		"bad var name":       "vars:\n  lower_case: x\n",
-		"decimals too large": "traffic:\n  decimals: 99\n",
-		"bad ua pattern":     "user_agents:\n  rules:\n    - pattern: \"[\"\n",
-		"empty ua pattern":   "user_agents:\n  rules:\n    - name: x\n",
-		"bad ua action":      "user_agents:\n  rules:\n    - pattern: x\n      action: drop\n",
+		"bad encode":          "headers:\n  - name: announce\n    encode: rot13\n",
+		"bad timezone":        "datetime:\n  timezone: Mars/Olympus\n",
+		"missing name":        "headers:\n  - template: hi\n",
+		"remove + template":   "headers:\n  - name: announce\n    remove: true\n    template: hi\n",
+		"bad user_agent":      "headers:\n  - name: announce\n    when:\n      user_agent: \"[\"\n",
+		"bad var name":        "vars:\n  lower_case: x\n",
+		"decimals too large":  "traffic:\n  decimals: 99\n",
+		"bad ua pattern":      "user_agents:\n  rules:\n    - pattern: \"[\"\n",
+		"empty ua pattern":    "user_agents:\n  rules:\n    - name: x\n",
+		"bad ua action":       "user_agents:\n  rules:\n    - pattern: x\n      action: drop\n",
+		"blank block pattern": "block:\n  patterns: [\"  \"]\n",
 	}
 
 	for name, body := range tests {
@@ -217,7 +215,6 @@ func TestLoadFileRejectsBadInput(t *testing.T) {
 }
 
 func TestLoadEnvValidation(t *testing.T) {
-	// All required vars missing: the report should name every one at once.
 	for _, key := range []string{"UPSTREAM_URL", "REMNAWAVE_PANEL_URL", "REMNAWAVE_API_TOKEN"} {
 		t.Setenv(key, "")
 	}
@@ -272,7 +269,6 @@ func TestLoadEnvRejectsBadURL(t *testing.T) {
 	}
 }
 
-// Several rules may target one header, each scoped by its own conditions.
 func TestLoadFileAllowsSeveralRulesPerHeader(t *testing.T) {
 	cfg, _, err := loadFile(writeConfig(t, `
 headers:
@@ -299,8 +295,6 @@ headers:
 	}
 }
 
-// The shipped user-agent rules must catch what they claim to and nothing a
-// real client sends.
 func TestShippedUserAgentExample(t *testing.T) {
 	cfg, _, err := loadFile(filepath.Join("..", "..", "examples", "user-agents.yaml"), true)
 	if err != nil {
@@ -347,7 +341,7 @@ func TestShippedUserAgentExample(t *testing.T) {
 	}
 }
 
-// The shipped examples must always load; they are documentation users copy.
+// The shipped examples are documentation users copy.
 func TestShippedConfigsAreValid(t *testing.T) {
 	paths, err := filepath.Glob(filepath.Join("..", "..", "examples", "*.yaml"))
 	if err != nil {
@@ -367,8 +361,7 @@ func TestShippedConfigsAreValid(t *testing.T) {
 	}
 }
 
-// An unconditional rule shadows every later rule for the same header, which is
-// silent dead config without this check.
+// A shadowed rule would otherwise be silent dead config.
 func TestLoadFileRejectsUnreachableRules(t *testing.T) {
 	_, _, err := loadFile(writeConfig(t, `
 headers:
@@ -405,8 +398,7 @@ headers:
 	}
 }
 
-// binary_units defaults to true, so an explicit false has to survive decoding
-// into an already-populated struct.
+// binary_units defaults to true, so an explicit false must survive decoding over defaults.
 func TestBinaryUnitsCanBeDisabled(t *testing.T) {
 	cfg, _, err := loadFile(writeConfig(t, "traffic:\n  binary_units: false\n"), true)
 	if err != nil {
@@ -417,8 +409,7 @@ func TestBinaryUnitsCanBeDisabled(t *testing.T) {
 	}
 }
 
-// Blocking is on unless it is turned off, including for a deployment whose
-// config.yaml predates the setting or has no file at all.
+// Covers deployments whose config.yaml predates the setting or is absent.
 func TestBlockDefaultsToEnabled(t *testing.T) {
 	files := map[string]string{
 		"no file":       "",
@@ -457,7 +448,6 @@ func TestBlockCanBeDisabledInFile(t *testing.T) {
 	}
 }
 
-// Every bad pattern is named, not just the first.
 func TestBlockRejectsInvalidPatterns(t *testing.T) {
 	_, _, err := loadFile(writeConfig(t, "block:\n  patterns:\n    - \"(\"\n    - \"[a-\"\n"), true)
 	if err == nil {
@@ -519,7 +509,7 @@ func TestHostsShufflePatterns(t *testing.T) {
 	}
 	for _, want := range []string{
 		"hosts.shuffle[0] is not a valid regexp",
-		"hosts.shuffle[1] needs a name pattern",
+		"hosts.shuffle[1] needs a pattern",
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error should mention %s:\n%v", want, err)
