@@ -90,12 +90,18 @@ func linkName(link string) string {
 }
 
 // fragmentName reads the #fragment every link but vmess carries.
+// Only the fragment is read: parsing the whole link as a URL costs an
+// allocation-heavy parse per host just to reach it.
 func fragmentName(link string) string {
-	u, err := url.Parse(link)
+	_, fragment, found := strings.Cut(link, "#")
+	if !found {
+		return ""
+	}
+	name, err := url.PathUnescape(fragment)
 	if err != nil {
 		return ""
 	}
-	return u.Fragment
+	return name
 }
 
 // vmessName reads ps from vmess://base64(json), falling back to a fragment.

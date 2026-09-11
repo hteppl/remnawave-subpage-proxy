@@ -10,6 +10,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hteppl/remnawave-subpage-proxy/internal/config"
@@ -20,6 +21,20 @@ import (
 )
 
 type contextKey struct{}
+
+// bufferPool reuses the copy buffers ReverseProxy would otherwise allocate,
+// 32 KiB for every request.
+type bufferPool struct{ pool sync.Pool }
+
+func newBufferPool() *bufferPool {
+	return &bufferPool{pool: sync.Pool{New: func() any {
+		buf := make([]byte, 32<<10)
+		return &buf
+	}}}
+}
+
+func (b *bufferPool) Get() []byte    { return *b.pool.Get().(*[]byte) }
+func (b *bufferPool) Put(buf []byte) { b.pool.Put(&buf) }
 
 func infoFrom(r *http.Request) (*requestInfo, bool) {
 	info, ok := r.Context().Value(contextKey{}).(*requestInfo)
@@ -106,7 +121,8 @@ func New(o Options) *Proxy {
 	}
 
 	p.rp = &httputil.ReverseProxy{
-		Transport: transport,
+		Transport:  transport,
+		BufferPool: newBufferPool(),
 		Rewrite: func(r *httputil.ProxyRequest) {
 			r.SetURL(o.Upstream)
 			// Keep the public hostname in any URL the page builds.

@@ -2,15 +2,14 @@ package hosts
 
 import (
 	"bytes"
-	"regexp"
 
 	"gopkg.in/yaml.v3"
 )
 
-var clashProxiesKey = regexp.MustCompile(`(?m)^proxies:`)
-
+// looksLikeClash matches what `(?m)^proxies:` would, as a plain byte search:
+// the regex walked every byte of a large link list to rule it out.
 func looksLikeClash(body []byte) bool {
-	return clashProxiesKey.Match(body)
+	return bytes.HasPrefix(body, []byte("proxies:")) || bytes.Contains(body, []byte("\nproxies:"))
 }
 
 // applyClash edits the YAML node tree so comments and style survive.

@@ -2,6 +2,7 @@ package tmpl
 
 import (
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -28,18 +29,11 @@ func Names(s string) []string {
 	if strings.IndexByte(s, '{') < 0 {
 		return nil
 	}
-	matches := placeholderRe.FindAllStringSubmatch(s, -1)
-	if len(matches) == 0 {
-		return nil
-	}
-	seen := make(map[string]struct{}, len(matches))
-	names := make([]string, 0, len(matches))
-	for _, m := range matches {
-		if _, dup := seen[m[1]]; dup {
-			continue
+	var names []string
+	for _, m := range placeholderRe.FindAllStringSubmatchIndex(s, -1) {
+		if name := s[m[2]:m[3]]; !slices.Contains(names, name) {
+			names = append(names, name)
 		}
-		seen[m[1]] = struct{}{}
-		names = append(names, m[1])
 	}
 	return names
 }
@@ -49,29 +43,40 @@ func Render(s string, lookup Lookup, unknown Unknown) string {
 	if strings.IndexByte(s, '{') < 0 {
 		return s
 	}
-	return placeholderRe.ReplaceAllStringFunc(s, func(match string) string {
-		groups := placeholderRe.FindStringSubmatch(match)
-		name, modSpec := groups[1], groups[2]
+	matches := placeholderRe.FindAllStringSubmatchIndex(s, -1)
+	if len(matches) == 0 {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	last := 0
+	for _, m := range matches {
+		b.WriteString(s[last:m[0]])
+		b.WriteString(renderOne(s[m[0]:m[1]], s[m[2]:m[3]], s[m[4]:m[5]], lookup, unknown))
+		last = m[1]
+	}
+	b.WriteString(s[last:])
+	return b.String()
+}
 
-		mods := parseModifiers(modSpec)
+func renderOne(match, name, modSpec string, lookup Lookup, unknown Unknown) string {
+	mods := parseModifiers(modSpec)
 
-		value, known := lookup(name)
-		if !known {
-			if def, ok := defaultOf(mods); ok {
-				value = def
-			} else if unknown == Blank {
-				return ""
-			} else {
-				return match
-			}
-		} else if value == "" {
-			if def, ok := defaultOf(mods); ok {
-				value = def
-			}
+	value, known := lookup(name)
+	if !known {
+		if def, ok := defaultOf(mods); ok {
+			value = def
+		} else if unknown == Blank {
+			return ""
+		} else {
+			return match
 		}
-
-		return applyModifiers(value, mods)
-	})
+	} else if value == "" {
+		if def, ok := defaultOf(mods); ok {
+			value = def
+		}
+	}
+	return applyModifiers(value, mods)
 }
 
 type modifier struct {
