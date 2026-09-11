@@ -18,6 +18,7 @@ cp examples/traffic-limit.yaml config.yaml
 | [`force-unlimited.yaml`](force-unlimited.yaml)       | Present every plan as unlimited while keeping the real quota internally            |
 | [`localized-ru.yaml`](localized-ru.yaml)             | Russian text, local units and timezone                                             |
 | [`hosts-shuffle.yaml`](hosts-shuffle.yaml)           | Shuffle the servers in the subscription so users spread across them                |
+| [`user-agents.yaml`](user-agents.yaml)               | Tell users who pasted a link or JSON into their app's User-Agent field             |
 
 Every option is documented in [`config.example.yaml`](../config.example.yaml).
 

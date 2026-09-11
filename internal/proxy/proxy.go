@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hteppl/remnawave-subpage-proxy/internal/config"
 	"github.com/hteppl/remnawave-subpage-proxy/internal/hosts"
 	"github.com/hteppl/remnawave-subpage-proxy/internal/realip"
 	"github.com/hteppl/remnawave-subpage-proxy/internal/rewrite"
@@ -29,6 +30,8 @@ type requestInfo struct {
 	userAgent       string
 	subscriptionURL string
 	cacheKey        string
+	// notice is the user-agent rule that swaps this response's hosts.
+	notice *config.CompiledUserAgentRule
 }
 
 type Options struct {
@@ -42,6 +45,9 @@ type Options struct {
 	SubCache *subcache.Cache
 	// Shuffler shuffles the hosts inside a subscription body.
 	Shuffler *hosts.Shuffler
+	// UserAgents refuses or annotates subscriptions fetched with a broken
+	// User-Agent.
+	UserAgents *UserAgentFilter
 	// ForceHTTPS claims TLS termination to an upstream that demands it.
 	ForceHTTPS bool
 	Logger     *slog.Logger
@@ -54,6 +60,8 @@ type Proxy struct {
 	realIP     *realip.Resolver
 	subCache   *subcache.Cache
 	shuffler   *hosts.Shuffler
+	userAgents *UserAgentFilter
+	engine     *rewrite.Engine
 	forceHTTPS bool
 	log        *slog.Logger
 
@@ -77,11 +85,13 @@ func New(o Options) *Proxy {
 		realIP:     o.RealIP,
 		subCache:   o.SubCache,
 		shuffler:   o.Shuffler,
+		userAgents: o.UserAgents,
+		engine:     o.Engine,
 		forceHTTPS: o.ForceHTTPS,
 		log:        log,
 		rewrites:   o.Engine != nil && o.Engine.Enabled(),
 	}
-	p.observes = p.rewrites || p.subCache != nil || p.shuffler.Enabled()
+	p.observes = p.rewrites || p.subCache != nil || p.shuffler.Enabled() || p.userAgents.Enabled()
 
 	transport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
@@ -108,7 +118,7 @@ func New(o Options) *Proxy {
 			r.Out.Host = r.In.Host
 			forwardHeaders(r, o.ForceHTTPS)
 			// A body to be rewritten must arrive uncompressed.
-			if info, ok := r.In.Context().Value(contextKey{}).(*requestInfo); ok && p.shuffles(info) {
+			if info, ok := r.In.Context().Value(contextKey{}).(*requestInfo); ok && (p.shuffles(info) || info.notice != nil) {
 				r.Out.Header.Del("Accept-Encoding")
 			}
 		},
@@ -123,14 +133,29 @@ func New(o Options) *Proxy {
 				return nil
 			}
 
+			rq := rewrite.Request{
+				ShortUUID:       info.route.ShortUUID,
+				ClientType:      info.route.ClientType,
+				UserAgent:       info.userAgent,
+				ClientIP:        info.clientIP,
+				SubscriptionURL: info.subscriptionURL,
+			}
+
+			// Rendered first: Apply may hide the quota the message reports.
+			var message string
+			if info.notice != nil {
+				message = p.renderNotice(resp, rq, info.notice.Message)
+			}
+
 			if p.rewrites {
-				o.Engine.Apply(resp.Request.Context(), resp.Header, rewrite.Request{
-					ShortUUID:       info.route.ShortUUID,
-					ClientType:      info.route.ClientType,
-					UserAgent:       info.userAgent,
-					ClientIP:        info.clientIP,
-					SubscriptionURL: info.subscriptionURL,
-				})
+				o.Engine.Apply(resp.Request.Context(), resp.Header, rq)
+			}
+
+			// A notice replaces the hosts, so there is nothing to shuffle, and
+			// it is never cached: the next fetch may carry a repaired agent.
+			if info.notice != nil {
+				p.applyNotice(resp, info, message)
+				return nil
 			}
 
 			p.shuffle(resp, info)
@@ -160,12 +185,26 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	userAgent := r.Header.Get("User-Agent")
 
 	info := &requestInfo{route: route, userAgent: userAgent}
-	// Only placeholders read these.
-	if p.rewrites {
+	if route.ShortUUID != "" {
+		if rule := p.userAgents.Match(userAgent); rule != nil {
+			// The agent itself is not logged: a pasted one may be a live link.
+			if rule.Action == config.UserAgentBlock {
+				p.log.Debug("answered a broken user agent without forwarding it",
+					"rule", rule.Name, "short_uuid", route.ShortUUID)
+				p.writeBlock(w, r, route, rule)
+				return
+			}
+			p.log.Debug("serving a notice for a broken user agent",
+				"rule", rule.Name, "short_uuid", route.ShortUUID)
+			info.notice = rule
+		}
+	}
+	// Placeholders read these, and so may a notice message.
+	if p.rewrites || info.notice != nil {
 		info.clientIP = p.realIP.ClientIP(r)
 		info.subscriptionURL = p.subscriptionURL(r, route.ShortUUID)
 	}
-	if p.subCache != nil && route.ShortUUID != "" {
+	if p.subCache != nil && route.ShortUUID != "" && info.notice == nil {
 		info.cacheKey = subcache.Key(
 			route.ShortUUID,
 			route.ClientType,
@@ -238,6 +277,15 @@ func (p *Proxy) writeFromCache(w http.ResponseWriter, info *requestInfo) bool {
 	w.WriteHeader(entry.Status)
 	_, _ = w.Write(body)
 	return true
+}
+
+// renderNotice resolves the placeholders of a notice message; without an
+// engine the message is sent as written.
+func (p *Proxy) renderNotice(resp *http.Response, rq rewrite.Request, message string) string {
+	if p.engine == nil {
+		return message
+	}
+	return p.engine.Render(resp.Request.Context(), resp.Header, rq, message)
 }
 
 // shuffles reports whether this request's body is up for shuffling.

@@ -136,35 +136,10 @@ func (e *Engine) Apply(ctx context.Context, h http.Header, rq Request) {
 	// request when it is absent.
 	limitFromHeader := userInfo != nil && userInfo.Total >= 0
 
-	var info *panel.Info
-	if e.fetcher != nil && rq.ShortUUID != "" &&
-		(e.alwaysFetch || needsStatus || (needsLimit && !limitFromHeader) ||
-			e.resolver.NeedsPanel(names, userInfo != nil)) {
-		realIP := ""
-		if e.forwardRealIP {
-			realIP = rq.ClientIP
-		}
-		fetched, err := e.fetcher.SubscriptionInfo(ctx, rq.ShortUUID, realIP)
-		switch {
-		case err == nil:
-			info = fetched
-		case errors.Is(err, panel.ErrNotFound):
-			e.log.Debug("panel has no such subscription", "short_uuid", rq.ShortUUID)
-		default:
-			// Unresolved placeholders are left as-is, not blanked.
-			e.log.Warn("subscription info lookup failed", "short_uuid", rq.ShortUUID, "error", err)
-		}
-	}
+	info := e.fetchInfo(ctx, rq, needsStatus || (needsLimit && !limitFromHeader) ||
+		e.resolver.NeedsPanel(names, userInfo != nil))
 
-	source := subinfo.Source{
-		ShortUUID:       rq.ShortUUID,
-		ClientType:      rq.ClientType,
-		UserAgent:       rq.UserAgent,
-		ClientIP:        rq.ClientIP,
-		SubscriptionURL: rq.SubscriptionURL,
-		UserInfo:        userInfo,
-		Panel:           info,
-	}
+	source := sourceFor(rq, userInfo, info)
 	lookup := e.resolver.Lookup(source)
 	limit, limitKnown := e.resolver.Limit(source)
 
@@ -196,6 +171,53 @@ func (e *Engine) Apply(ctx context.Context, h http.Header, rq Request) {
 			"short_uuid", rq.ShortUUID,
 			"client_type", rq.ClientType,
 		)
+	}
+}
+
+// Render resolves one template against the response headers h, calling the
+// panel only when a placeholder in it needs to. It must see h before Apply,
+// which may already have hidden the quota for force_unlimited.
+func (e *Engine) Render(ctx context.Context, h http.Header, rq Request, template string) string {
+	var userInfo *subinfo.UserInfo
+	if parsed, ok := subinfo.ParseUserInfo(h.Get(subinfo.UserInfoHeader)); ok {
+		userInfo = &parsed
+	}
+	info := e.fetchInfo(ctx, rq, e.resolver.NeedsPanel(tmpl.Names(template), userInfo != nil))
+	return tmpl.Render(template, e.resolver.Lookup(sourceFor(rq, userInfo, info)), e.unknown)
+}
+
+// fetchInfo asks the panel about the subscription when needed says so, or
+// always under PANEL_ALWAYS_FETCH. A failure yields nil: unresolved
+// placeholders are left as-is, not blanked.
+func (e *Engine) fetchInfo(ctx context.Context, rq Request, needed bool) *panel.Info {
+	if e.fetcher == nil || rq.ShortUUID == "" || !(needed || e.alwaysFetch) {
+		return nil
+	}
+	realIP := ""
+	if e.forwardRealIP {
+		realIP = rq.ClientIP
+	}
+	info, err := e.fetcher.SubscriptionInfo(ctx, rq.ShortUUID, realIP)
+	switch {
+	case err == nil:
+		return info
+	case errors.Is(err, panel.ErrNotFound):
+		e.log.Debug("panel has no such subscription", "short_uuid", rq.ShortUUID)
+	default:
+		e.log.Warn("subscription info lookup failed", "short_uuid", rq.ShortUUID, "error", err)
+	}
+	return nil
+}
+
+func sourceFor(rq Request, userInfo *subinfo.UserInfo, info *panel.Info) subinfo.Source {
+	return subinfo.Source{
+		ShortUUID:       rq.ShortUUID,
+		ClientType:      rq.ClientType,
+		UserAgent:       rq.UserAgent,
+		ClientIP:        rq.ClientIP,
+		SubscriptionURL: rq.SubscriptionURL,
+		UserInfo:        userInfo,
+		Panel:           info,
 	}
 }
 

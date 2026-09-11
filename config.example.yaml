@@ -96,3 +96,23 @@ hosts:
   #   - "(?i)premium"
   #   - "^🇩🇪"
   #   - ".*"   # everything
+
+# Catch broken User-Agents, such as a subscription link or a JSON config pasted
+# into the app's settings. Rules are regexps tried in order; the first match
+# decides. Both actions replace the servers with dead hosts named after
+# message, one per line. notice (default) forwards the request, keeping the
+# panel's traffic and expiry headers; block answers at the proxy without
+# asking the subscription page, so it sends neither. message is a template and
+# is required: a rule without one is disabled with a warning at startup.
+# announce: true also sends the message as announce.
+user_agents:
+  rules: []
+  # - name: pasted-link
+  #   pattern: "^\\s*(?i:https?|vless|vmess|trojan|ss)://"
+  #   action: notice
+  #   message: "⚠️ Invalid User-Agent — reset it in the app settings"
+  #   announce: true
+  # - name: pasted-json
+  #   pattern: "^\\s*[{\\[]"
+  #   action: block
+  #   message: "⚠️ Invalid User-Agent — reset it in the app settings"

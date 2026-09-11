@@ -204,6 +204,102 @@ func CompileHosts(h Hosts) ([]*regexp.Regexp, error) {
 	return compiled, nil
 }
 
+// UserAgentAction is what happens to a subscription request whose User-Agent
+// matches a rule.
+type UserAgentAction string
+
+const (
+	// UserAgentNotice forwards the request and keeps the panel's headers, so
+	// the app still shows traffic and expiry, but swaps the hosts for
+	// placeholders named after the message.
+	UserAgentNotice UserAgentAction = "notice"
+	// UserAgentBlock answers at the proxy with the same placeholders, never
+	// forwarding the request, so the subscription page builds nothing.
+	UserAgentBlock UserAgentAction = "block"
+)
+
+func (a *UserAgentAction) UnmarshalYAML(node *yaml.Node) error {
+	var raw string
+	if err := node.Decode(&raw); err != nil {
+		return err
+	}
+	switch v := UserAgentAction(strings.ToLower(strings.TrimSpace(raw))); v {
+	case UserAgentNotice, UserAgentBlock:
+		*a = v
+		return nil
+	case "":
+		*a = UserAgentNotice
+		return nil
+	default:
+		return fmt.Errorf("line %d: user_agents action must be notice or block, got %q", node.Line, raw)
+	}
+}
+
+// UserAgentRule catches a User-Agent no real client sends: a subscription URL
+// pasted into the field, a whole JSON config, and the like.
+type UserAgentRule struct {
+	// Name identifies the rule in logs; the User-Agent itself is never logged,
+	// since a pasted one may hold a subscription link.
+	Name string `yaml:"name"`
+	// Pattern is a Go regexp matched against the whole User-Agent.
+	Pattern string          `yaml:"pattern"`
+	Action  UserAgentAction `yaml:"action"`
+	// Message is a template shown as the placeholder host's name; each line
+	// of a multi-line message becomes a host of its own. Required: a rule
+	// without one is disabled.
+	Message string `yaml:"message"`
+	// Announce also sends the message as the announce header.
+	Announce bool `yaml:"announce"`
+}
+
+type UserAgents struct {
+	// Rules are tried in order; the first match decides.
+	Rules []UserAgentRule `yaml:"rules"`
+}
+
+// CompiledUserAgentRule is a rule with its pattern parsed.
+type CompiledUserAgentRule struct {
+	UserAgentRule
+	Regexp *regexp.Regexp
+}
+
+// CompileUserAgents parses the rules and reports every bad pattern. A rule
+// without a message has nothing to tell the user, so it is left out and
+// named in disabled for the caller to warn about; there is no default text,
+// since any wording or language the proxy picked would be wrong for someone.
+func CompileUserAgents(u UserAgents) (compiled []CompiledUserAgentRule, disabled []string, err error) {
+	var problems []error
+	for i, rule := range u.Rules {
+		label := fmt.Sprintf("user_agents.rules[%d]", i)
+		if rule.Name = strings.TrimSpace(rule.Name); rule.Name != "" {
+			label += " (" + rule.Name + ")"
+		} else {
+			rule.Name = fmt.Sprintf("rule-%d", i)
+		}
+		if strings.TrimSpace(rule.Pattern) == "" {
+			problems = append(problems, fmt.Errorf("%s needs a pattern", label))
+			continue
+		}
+		re, err := regexp.Compile(rule.Pattern)
+		if err != nil {
+			problems = append(problems, fmt.Errorf("%s pattern is not a valid regexp: %w", label, err))
+			continue
+		}
+		if rule.Action == "" {
+			rule.Action = UserAgentNotice
+		}
+		if strings.TrimSpace(rule.Message) == "" {
+			disabled = append(disabled, label)
+			continue
+		}
+		compiled = append(compiled, CompiledUserAgentRule{UserAgentRule: rule, Regexp: re})
+	}
+	if len(problems) > 0 {
+		return nil, nil, errors.Join(problems...)
+	}
+	return compiled, disabled, nil
+}
+
 type File struct {
 	Traffic     TrafficFormat     `yaml:"traffic"`
 	DateTime    DateTimeFormat    `yaml:"datetime"`
@@ -213,6 +309,7 @@ type File struct {
 	Headers     []HeaderRule      `yaml:"headers"`
 	Block       Block             `yaml:"block"`
 	Hosts       Hosts             `yaml:"hosts"`
+	UserAgents  UserAgents        `yaml:"user_agents"`
 }
 
 func defaultFile() File {
@@ -364,6 +461,9 @@ func (f *File) validate() error {
 		problems = append(problems, strings.Split(err.Error(), "\n")...)
 	}
 	if _, err := CompileHosts(f.Hosts); err != nil {
+		problems = append(problems, strings.Split(err.Error(), "\n")...)
+	}
+	if _, _, err := CompileUserAgents(f.UserAgents); err != nil {
 		problems = append(problems, strings.Split(err.Error(), "\n")...)
 	}
 

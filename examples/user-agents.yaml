@@ -1,0 +1,46 @@
+# Catch User-Agents no real client sends: a subscription link or a whole JSON
+# config pasted into the app's User-Agent field. Rules are Go regexps matched
+# against the full User-Agent, tried in order; the first match decides.
+#
+#   notice  the request reaches Remnawave, so the app still shows traffic and
+#           expiry, but instead of the servers it sees dead hosts named after
+#           the message, one per line
+#   block   the same message hosts, answered by the proxy itself; the
+#           subscription page is never asked, so no traffic or expiry either
+#
+# Both actions need a message: a rule without one is disabled with a warning
+# at startup.
+
+user_agents:
+  rules:
+    # Each line of a multi-line message is a dead host of its own, so the text
+    # reads down the server list; with announce: true Happ also shows all
+    # three lines together in the banner above it.
+    - name: pasted-link
+      pattern: "^\\s*(?i:https?|vless|vmess|trojan|ss|hysteria2?)://"
+      action: notice
+      message: |
+        ⚠️ Invalid User-Agent in the app
+        Settings → User-Agent → reset to default
+        Then update the subscription
+        {DAYS_LEFT} days left
+      announce: true
+
+    - name: pasted-json
+      pattern: "^\\s*[{\\[]"
+      action: notice
+      message: |
+        ⚠️ Invalid User-Agent in the app
+        Settings → User-Agent → reset to default
+        Then update the subscription
+        {DAYS_LEFT} days left
+
+    # A long base64 blob is usually a pasted subscription body.
+    - name: pasted-base64
+      pattern: "^[A-Za-z0-9+/=_-]{120,}$"
+      action: block
+      message: |
+        ⚠️ Invalid User-Agent in the app
+        Settings → User-Agent → reset to default
+        Then update the subscription
+        {DAYS_LEFT} days left

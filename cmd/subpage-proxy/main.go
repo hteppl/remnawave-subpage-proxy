@@ -138,6 +138,17 @@ func run() error {
 		log.Info("host shuffling enabled", "groups", len(shuffleGroups))
 	}
 
+	userAgents, err := proxy.NewUserAgentFilter(cfg.File.UserAgents)
+	if err != nil {
+		return err
+	}
+	for _, rule := range userAgents.Disabled() {
+		log.Warn("user-agent rule disabled: action notice needs a message to show the user", "rule", rule)
+	}
+	if userAgents.Enabled() {
+		log.Info("user-agent filter enabled", "rules", userAgents.Len())
+	}
+
 	handler := proxy.New(proxy.Options{
 		Upstream:   cfg.Upstream.URL,
 		SubPrefix:  cfg.Upstream.SubPrefix,
@@ -147,6 +158,7 @@ func run() error {
 		Blocker:    blocker,
 		SubCache:   subCache,
 		Shuffler:   shuffler,
+		UserAgents: userAgents,
 		ForceHTTPS: forceHTTPS(),
 		Logger:     log,
 	})

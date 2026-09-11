@@ -29,6 +29,7 @@ Used 10.50 GB of 100.00 GB · 12 days left
 - **Fallback Cache** - Optionally replays the last good subscription while Remnawave is unreachable
 - **Force Unlimited** - Optionally reports every plan as unlimited, whatever quota the panel holds
 - **Scanner Blocking** - Probes for `/.env`, `/.git` and the like are refused before they reach the panel
+- **Broken User-Agent Notice** - A link or JSON pasted as the User-Agent gets a message instead of the servers
 - **Rich Placeholders** - Formatted dates, `∞` for unlimited plans, percentages, a progress bar and modifiers on top
   of the panel's own `{{VAR}}` templates
 - **Conditional Rules** - Templated text per client type, user agent, user status or quota
@@ -60,6 +61,7 @@ does not:
 | Fallback cache during a panel outage | — (the connection is dropped)                          | `SUBSCRIPTION_CACHE_ENABLED`                             |
 | Force unlimited in the app's readout | —                                                      | `traffic.force_unlimited`                                |
 | Scanner probe blocking               | — (probes are looked up in the panel)                  | `block:`                                                 |
+| Broken User-Agent handling           | Response Rules can block, without templated text       | `user_agents:`, templated message hosts                  |
 | Header name casing                   | Lowercased by the subscription page                    | Preserved                                                |
 
 Both template layers can be combined in one header: the panel resolves
@@ -461,6 +463,54 @@ Exempt are `.well-known`, which carries ACME challenges and `security.txt`, in
 any spelling, and the page's own `/assets/.app-config-v2.json` — those two only. Short UUIDs are
 nanoids, so no built-in name collides with a real subscription in practice, but
 nothing enforces that shape.
+
+### Broken User-Agents
+
+Some users paste their subscription link, or a whole JSON config, into the
+User-Agent field of their app. The panel then serves them a normal
+subscription while the app misbehaves, and nothing tells them why.
+`user_agents` catches such agents with regexps tried in order, the first match
+deciding:
+
+```yaml
+user_agents:
+  rules:
+    - name: pasted-link
+      pattern: "^\\s*(?i:https?|vless|vmess|trojan|ss)://"
+      action: notice
+      message: |
+        ⚠️ Invalid User-Agent in the app
+        Settings → User-Agent → reset to default
+        Then update the subscription
+      announce: true
+    - name: pasted-json
+      pattern: "^\\s*[{\\[]"
+      action: block
+      message: "⚠️ Invalid User-Agent — reset it in the app settings"
+```
+
+Both actions replace the servers with hosts named after `message`, one per
+line, so a longer text reads down the server list. They point at `0.0.0.0:1`
+and carry no traffic.
+
+| Action             | Subscription page asked | App shows traffic and expiry | Host format               |
+|--------------------|-------------------------|------------------------------|---------------------------|
+| `notice` (default) | yes                     | yes, from the panel          | whatever the panel sent   |
+| `block`            | no                      | no                           | from the client-type path |
+
+`block` answers with the message hosts itself, so Remnawave never builds a
+subscription for that request. Placeholders in its message still resolve,
+calling the panel API when they need data such as `{DAYS_LEFT}`.
+
+`message` has no default and must be set for both actions: a rule without one
+is disabled, with a warning at startup. It is a template, so `{USERNAME}` or
+`{DAYS_LEFT}` work in it, and `announce: true` also sends the whole message,
+line breaks included, as the `announce` header.
+
+Only subscription paths are checked. An error from the panel, such as an
+unknown user, and the web page pass through unchanged, and a notice is never
+stored in the fallback cache. Logs name the rule, never the User-Agent, since a
+pasted one may be a live subscription link.
 
 ### Health
 

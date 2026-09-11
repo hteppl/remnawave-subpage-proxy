@@ -163,6 +163,36 @@ func TestLoadFileStillRejectsBadValuesBesideUnknownKeys(t *testing.T) {
 	}
 }
 
+func TestLoadFileUserAgentRules(t *testing.T) {
+	path := writeConfig(t, "user_agents:\n  rules:\n"+
+		"    - name: link\n      pattern: \"^https?://\"\n      message: fix it\n"+
+		"    - pattern: \"^\\\\s*[{\\\\[]\"\n      action: block\n      message: blocked\n      announce: true\n"+
+		"    - name: silent\n      pattern: x\n      message: \"  \"\n"+
+		"    - name: mute-block\n      pattern: y\n      action: block\n")
+	cfg, _, err := loadFile(path, true)
+	if err != nil {
+		t.Fatalf("a rule without a message must not stop startup: %v", err)
+	}
+	rules, disabled, err := CompileUserAgents(cfg.UserAgents)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 2 {
+		t.Fatalf("got %d rules, want 2", len(rules))
+	}
+	if r := rules[0]; r.Name != "link" || r.Action != UserAgentNotice || r.Message != "fix it" {
+		t.Errorf("first rule wrong: %+v", r.UserAgentRule)
+	}
+	// A block shows the message too, so it may announce it.
+	if r := rules[1]; r.Name != "rule-1" || r.Action != UserAgentBlock || !r.Announce || !r.Regexp.MatchString(` {"outbounds":[]}`) {
+		t.Errorf("second rule wrong: %+v", r.UserAgentRule)
+	}
+	// Both actions need a message; neither is kept without one.
+	if len(disabled) != 2 || !strings.Contains(disabled[0], "silent") || !strings.Contains(disabled[1], "mute-block") {
+		t.Errorf("disabled = %q, want both rules with no message", disabled)
+	}
+}
+
 func TestLoadFileRejectsBadInput(t *testing.T) {
 	tests := map[string]string{
 		"bad encode":         "headers:\n  - name: announce\n    encode: rot13\n",
@@ -172,6 +202,9 @@ func TestLoadFileRejectsBadInput(t *testing.T) {
 		"bad user_agent":     "headers:\n  - name: announce\n    when:\n      user_agent: \"[\"\n",
 		"bad var name":       "vars:\n  lower_case: x\n",
 		"decimals too large": "traffic:\n  decimals: 99\n",
+		"bad ua pattern":     "user_agents:\n  rules:\n    - pattern: \"[\"\n",
+		"empty ua pattern":   "user_agents:\n  rules:\n    - name: x\n",
+		"bad ua action":      "user_agents:\n  rules:\n    - pattern: x\n      action: drop\n",
 	}
 
 	for name, body := range tests {
@@ -263,6 +296,54 @@ headers:
 	}
 	if cfg.Headers[1].When.HasTrafficLimit == nil || *cfg.Headers[1].When.HasTrafficLimit {
 		t.Error("has_traffic_limit: false was not parsed")
+	}
+}
+
+// The shipped user-agent rules must catch what they claim to and nothing a
+// real client sends.
+func TestShippedUserAgentExample(t *testing.T) {
+	cfg, _, err := loadFile(filepath.Join("..", "..", "examples", "user-agents.yaml"), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules, disabled, err := CompileUserAgents(cfg.UserAgents)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(disabled) > 0 {
+		t.Fatalf("the example ships disabled rules: %q", disabled)
+	}
+	match := func(ua string) string {
+		for _, r := range rules {
+			if r.Regexp.MatchString(ua) {
+				return r.Name
+			}
+		}
+		return ""
+	}
+
+	caught := map[string]string{
+		"https://sub.example.com/aBcDeF123":    "pasted-link",
+		" HTTP://sub.example.com/aBcDeF123":    "pasted-link",
+		"vless://uuid@host:443?type=tcp#Name":  "pasted-link",
+		`{"outbounds":[{"protocol":"vless"}]}`: "pasted-json",
+		`[{"remarks":"Name"}]`:                 "pasted-json",
+		strings.Repeat("dmxlc3M6Ly9", 15):      "pasted-base64",
+	}
+	for ua, want := range caught {
+		if got := match(ua); got != want {
+			t.Errorf("%.40q matched %q, want %q", ua, got, want)
+		}
+	}
+
+	for _, ua := range []string{
+		"Happ/1.2.3", "v2rayNG/1.9.5", "clash-verge/v2.0.0", "sing-box 1.11.0",
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36",
+		"Streisand/2.0 (iPhone; iOS 18.0)",
+	} {
+		if got := match(ua); got != "" {
+			t.Errorf("real client %q caught by %q", ua, got)
+		}
 	}
 }
 

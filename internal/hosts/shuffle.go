@@ -33,17 +33,63 @@ func (s *Shuffler) Apply(body []byte) ([]byte, bool) {
 		return body, false
 	}
 
+	switch Sniff(body) {
+	case FormatXray:
+		return s.applyXray(body)
+	case FormatSingbox:
+		return s.applySingbox(body)
+	case FormatClash:
+		return s.applyClash(body)
+	case FormatLinks:
+		return s.applyLinks(body)
+	default:
+		return body, false
+	}
+}
+
+// Format is the shape of a subscription body.
+type Format int
+
+const (
+	FormatUnknown Format = iota
+	// FormatLinks is one link per line, plain or base64-wrapped.
+	FormatLinks
+	// FormatXray is an array of Xray configs, one per host.
+	FormatXray
+	FormatSingbox
+	// FormatClash covers Clash, Mihomo and Stash YAML.
+	FormatClash
+)
+
+// Sniff detects the format from the body alone, whatever path produced it.
+// An empty body is FormatUnknown; anything unrecognised is taken as links.
+func Sniff(body []byte) Format {
 	switch trimmed := bytes.TrimSpace(body); {
 	case len(trimmed) == 0:
-		return body, false
+		return FormatUnknown
 	case trimmed[0] == '[':
-		return s.applyXray(body)
+		return FormatXray
 	case trimmed[0] == '{':
-		return s.applySingbox(body)
+		return FormatSingbox
 	case looksLikeClash(trimmed):
-		return s.applyClash(body)
+		return FormatClash
 	default:
-		return s.applyLinks(body)
+		return FormatLinks
+	}
+}
+
+// FormatForClientType is the format the page serves on a client-type path,
+// for when the body itself cannot be read.
+func FormatForClientType(clientType string) Format {
+	switch clientType {
+	case "json", "v2ray-json":
+		return FormatXray
+	case "singbox":
+		return FormatSingbox
+	case "clash", "mihomo", "stash":
+		return FormatClash
+	default:
+		return FormatLinks
 	}
 }
 
