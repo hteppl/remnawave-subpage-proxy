@@ -127,7 +127,7 @@ func New(o Options) *Proxy {
 			r.SetURL(o.Upstream)
 			// Keep the public hostname in any URL the page builds.
 			r.Out.Host = r.In.Host
-			forwardHeaders(r, o.ForceHTTPS)
+			forwardHeaders(r, o.RealIP, o.ForceHTTPS)
 			// A body to be rewritten must arrive uncompressed.
 			if info, ok := infoFrom(r.In); ok && (p.shuffles(info) || info.notice != nil) {
 				r.Out.Header.Del("Accept-Encoding")
@@ -300,17 +300,12 @@ func firstListValue(value string) string {
 	return strings.TrimSpace(first)
 }
 
-// ReverseProxy's Rewrite hook deletes X-Forwarded-*, so the chain is forwarded explicitly.
-func forwardHeaders(r *httputil.ProxyRequest, forceHTTPS bool) {
-	inbound := strings.TrimSpace(strings.Join(r.In.Header.Values("X-Forwarded-For"), ", "))
-	peer := realip.PeerIP(r.In)
-	switch {
-	case inbound != "" && peer != "":
-		r.Out.Header.Set("X-Forwarded-For", inbound+", "+peer)
-	case inbound != "":
-		r.Out.Header.Set("X-Forwarded-For", inbound)
-	case peer != "":
-		r.Out.Header.Set("X-Forwarded-For", peer)
+// ReverseProxy's Rewrite hook deletes X-Forwarded-*, so they are set explicitly. X-Forwarded-For carries
+// only the client resolved by TRUST_PROXY: appending our peer would make the page's TRUST_PROXY=1 pick
+// the edge in front of us (e.g. a Docker bridge address) instead of the user.
+func forwardHeaders(r *httputil.ProxyRequest, resolver *realip.Resolver, forceHTTPS bool) {
+	if client := resolver.ClientIP(r.In); client != "" {
+		r.Out.Header.Set("X-Forwarded-For", client)
 	}
 
 	proto := r.In.Header.Get("X-Forwarded-Proto")

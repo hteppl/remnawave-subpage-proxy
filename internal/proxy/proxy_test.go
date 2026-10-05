@@ -101,8 +101,8 @@ func TestProxyRewritesAnnounceEndToEnd(t *testing.T) {
 		t.Errorf("body = %q, want it passed through verbatim", body)
 	}
 
-	if !strings.HasPrefix(gotForwardedFor, "203.0.113.9, ") {
-		t.Errorf("X-Forwarded-For = %q, want the inbound chain preserved and this hop appended", gotForwardedFor)
+	if gotForwardedFor != "203.0.113.9" {
+		t.Errorf("X-Forwarded-For = %q, want only the resolved client", gotForwardedFor)
 	}
 	if gotForwardedProto != "https" {
 		t.Errorf("X-Forwarded-Proto = %q, want https", gotForwardedProto)
@@ -643,7 +643,7 @@ func TestBareRelayForwardsWithoutRewriteStages(t *testing.T) {
 		t.Errorf("announce rewritten by a disabled engine: %q", got)
 	}
 	if resp.Header.Get("X-Peer") == "" {
-		t.Error("X-Forwarded-For chain not maintained on the bare relay path")
+		t.Error("X-Forwarded-For not set on the bare relay path")
 	}
 	if string(body) != "vless://a@h:1#n\nvless://b@h:2#m" {
 		t.Errorf("body altered: %q", body)

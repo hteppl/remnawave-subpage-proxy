@@ -35,7 +35,7 @@ Used 10.50 GB of 100.00 GB · 12 days left
 - **Conditional Rules** - Templated text per client type, user agent, user status or quota
 - **Host Shuffling** - Optionally shuffles the servers matching a name pattern, each group within its own positions
 - **Zero-Cost Placeholders** - Traffic and expiry come from the response headers, so the common case makes no API call
-- **Transparent Proxy** - Header casing, the `X-Forwarded-*` chain and drop-on-error all preserved
+- **Transparent Proxy** - Header casing, the real client IP and drop-on-error all preserved
 - **Docker Ready** - Multi-arch image, non-root, read-only, self-probing healthcheck
 
 ## Compared with Remnawave
@@ -343,7 +343,7 @@ Infrastructure is configured through environment variables, templating through
 | `UPSTREAM_FORCE_HTTPS`                | `false`       | Always send `X-Forwarded-Proto: https` upstream.                 |
 | `PANEL_ENABLED`                       | `true`        | `false` runs without panel credentials.                          |
 | `PANEL_ALWAYS_FETCH`                  | `false`       | Look up every subscription, even when nothing needs it.          |
-| `PANEL_FORWARD_REAL_IP`               | `false`       | Send the end user's IP on info lookups.                          |
+| `PANEL_FORWARD_REAL_IP`               | `true`        | Send the end user's IP on info lookups.                          |
 | `PANEL_TIMEOUT`                       | `10s`         | Timeout for one panel API call.                                  |
 | `CACHE_TTL`                           | `30s`         | How long a successful panel lookup is reused.                    |
 | `CACHE_NEGATIVE_TTL`                  | `10s`         | How long a "not found" is remembered.                            |
@@ -527,8 +527,8 @@ endpoint, so the image needs neither a shell nor `curl`.
 - **Base64 values are handled safely.** A value is decoded and re-encoded only
   when decoding reveals a placeholder; anything else passes through byte for
   byte.
-- **`X-Forwarded-*` is chained, not overwritten,** so the subscription page
-  resolves the real client with its own `TRUST_PROXY=1`. Requests the upstream
+- **`X-Forwarded-For` carries only the real client,** resolved with the proxy's
+  own `TRUST_PROXY`, so the subscription page finds it with `TRUST_PROXY=1`. Requests the upstream
   refuses are dropped rather than answered, as the page itself does.
 - **The panel is not on the critical path.** If it is unavailable, subscriptions
   are still served; placeholders that require it retain their literal text.
